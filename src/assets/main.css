@@ -1,0 +1,27 @@
+@import './base.css';
+
+/* 移除 html 和 body 的默认边距 */
+html,
+body {
+  margin: 0;
+  padding: 0;
+}
+
+/* 让 html, body 和 #app 容器都占满屏幕
+  并覆盖掉所有之前限制宽度、内边距和布局的样式
+*/
+html,
+body,
+#app {
+  width: 100%;
+  height: 100%;
+  max-width: none; /* 覆盖 max-width: 1280px */
+  padding: 0; /* 覆盖 padding: 2rem */
+}
+
+/* (推荐) 统一盒模型 */
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+}

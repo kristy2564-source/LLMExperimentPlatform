@@ -3,7 +3,7 @@
     <!-- 背景动效 -->
     <div class="background-animation">
       <div class="floating-shapes">
-        <div v-for="i in 20" :key="i" class="shape" :style="getShapeStyle(i)"></div>
+        <div v-for="i in 20" :key="i" class="shape" :style="getShapeStyle()"></div>
       </div>
     </div>
 
@@ -12,8 +12,8 @@
       <div class="login-header">
         <div class="logo-section">
           <div class="logo-icon">🧠</div>
-          <h1 class="platform-title">小小跨学科问题解决专家工作台</h1>
-          <p class="platform-subtitle">欢迎来到智慧学习平台</p>
+          <h1 class="platform-title">智能问题解决工作台</h1>
+          <p class="platform-subtitle">欢迎来到智能问题解决工作台</p>
         </div>
       </div>
 
@@ -95,7 +95,7 @@
       <!-- 底部信息 -->
       <div class="login-footer">
         <p class="footer-text">
-          © 2025 跨学科问题解决专家工作台 |
+          © 2025 智能问题解决工作台 |
           <span class="footer-link" @click="showAbout = true">关于平台</span>
         </p>
       </div>
@@ -128,6 +128,20 @@
 <script setup lang="ts">
 import { ref, computed, onMounted } from 'vue'
 import { useRouter } from 'vue-router'
+
+// 🔥 定义类型接口
+interface UserData {
+  experimentId: string
+  studentName: string | null
+  loginTime: string
+  sessionId: string
+}
+
+interface LoginResult {
+  success: boolean
+  message?: string
+  userData?: UserData // 🔥 修复：使用明确的类型
+}
 
 // 定义组件通信
 const emit = defineEmits(['login-success'])
@@ -215,9 +229,12 @@ const handleLogin = async () => {
     } else {
       throw new Error(loginResult.message || '登录失败，请重试')
     }
-  } catch (error: any) {
+  } catch (error) {
+    // 🔥 修复1：移除 : any
+    // 🔥 添加类型守卫
+    const errorMessage = error instanceof Error ? error.message : '登录失败，请检查网络连接后重试'
     console.error('登录失败:', error)
-    inputError.value = error.message || '登录失败，请检查网络连接后重试'
+    inputError.value = errorMessage
     showConnectionStatus('error', '连接失败，请重试')
   } finally {
     isLoading.value = false
@@ -235,11 +252,8 @@ const validateExperimentId = (id: string): boolean => {
 const loginToDatabase = async (loginData: {
   experimentId: string
   studentName: string | null
-}): Promise<{
-  success: boolean
-  message?: string
-  userData?: any
-}> => {
+}): Promise<LoginResult> => {
+  // 🔥 修复2：使用明确的返回类型
   // 模拟网络延迟
   await new Promise((resolve) => setTimeout(resolve, 2000))
 
@@ -283,7 +297,8 @@ const generateSessionId = (): string => {
 }
 
 // 背景动画相关
-const getShapeStyle = (index: number) => {
+// 🔥 修复3：移除未使用的 index 参数
+const getShapeStyle = () => {
   const size = 20 + Math.random() * 60
   const left = Math.random() * 100
   const animationDelay = Math.random() * 10
@@ -319,6 +334,7 @@ onMounted(() => {
 </script>
 
 <style scoped>
+/* 保持原有样式不变 */
 .login-page-container {
   min-height: 100vh;
   background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
@@ -330,17 +346,19 @@ onMounted(() => {
   overflow: hidden;
 }
 
-/* 背景动效 */
+/* 背景动画 */
 .background-animation {
   position: absolute;
   top: 0;
   left: 0;
   width: 100%;
   height: 100%;
+  overflow: hidden;
   pointer-events: none;
 }
 
 .floating-shapes {
+  position: relative;
   width: 100%;
   height: 100%;
 }
@@ -353,17 +371,14 @@ onMounted(() => {
 }
 
 @keyframes float {
-  0% {
+  from {
     transform: translateY(100vh) rotate(0deg);
     opacity: 0;
   }
-  10% {
-    opacity: 1;
+  50% {
+    opacity: 0.3;
   }
-  90% {
-    opacity: 1;
-  }
-  100% {
+  to {
     transform: translateY(-100px) rotate(360deg);
     opacity: 0;
   }
@@ -378,57 +393,60 @@ onMounted(() => {
   max-width: 480px;
   width: 100%;
   box-shadow: 0 20px 60px rgba(0, 0, 0, 0.3);
-  transform: translateY(30px);
   opacity: 0;
-  transition: all 0.8s cubic-bezier(0.4, 0, 0.2, 1);
+  transform: scale(0.9) translateY(20px);
+  transition: all 0.6s ease-out;
 }
 
 .login-card.card-visible {
-  transform: translateY(0);
   opacity: 1;
+  transform: scale(1) translateY(0);
 }
 
-/* 头部区域 */
+/* 登录头部 */
 .login-header {
   text-align: center;
-  margin-bottom: 3rem;
+  margin-bottom: 2rem;
 }
 
 .logo-section {
-  animation: logoFloat 3s ease-in-out infinite;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.75rem;
 }
 
 .logo-icon {
   font-size: 4rem;
-  margin-bottom: 1rem;
-  animation: pulse 2s infinite;
+  animation: logoFloat 3s ease-in-out infinite;
 }
 
 .platform-title {
-  font-size: 1.8rem;
+  font-size: 1.75rem;
   font-weight: 700;
-  color: #1e293b;
-  margin: 0 0 0.5rem 0;
   background: linear-gradient(45deg, #667eea, #764ba2);
   -webkit-background-clip: text;
   -webkit-text-fill-color: transparent;
   background-clip: text;
+  margin: 0;
 }
 
 .platform-subtitle {
   color: #64748b;
   font-size: 1rem;
   margin: 0;
-  opacity: 0.8;
 }
 
 /* 表单样式 */
 .login-form {
-  margin-bottom: 2rem;
+  display: flex;
+  flex-direction: column;
+  gap: 1.5rem;
 }
 
 .form-group {
-  margin-bottom: 1.5rem;
+  display: flex;
+  flex-direction: column;
 }
 
 .form-label {
@@ -715,16 +733,6 @@ onMounted(() => {
 @keyframes spin {
   to {
     transform: rotate(360deg);
-  }
-}
-
-@keyframes pulse {
-  0%,
-  100% {
-    transform: scale(1);
-  }
-  50% {
-    transform: scale(1.05);
   }
 }
 

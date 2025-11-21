@@ -1,4 +1,56 @@
 // utils/simpleStorage.ts
+interface StoredMessage {
+  id: string
+  type: 'ai' | 'user' | 'system'
+  content: string
+  timestamp: string
+  step?: number
+  stage?: number
+}
+
+interface Step2Data {
+  conversationCount?: number
+  stageCompletionStatus?: boolean[]
+  messages?: StoredMessage[]
+  currentStage?: number
+
+  // 快照字段
+  finalAnswerSnapshot?: string
+  finalAnswerConfirmed?: boolean
+  stage1Snapshot?: string
+  stage2Snapshot?: string
+
+  // 临时保存字段
+  tempSnapshot?: {
+    content: string
+    stage1: string
+    stage2: string
+    savedAt: string
+    editCount?: number
+  }
+
+  // 编辑历史
+  editHistory?: Array<{
+    timestamp: string
+    contentLength: number
+    action: 'edit_start' | 'edit_change' | 'temp_save' | 'final_confirm'
+  }>
+}
+
+interface SnapshotData {
+  finalAnswerSnapshot: string
+  stage1Snapshot: string
+  stage2Snapshot: string
+  confirmedAt: string
+}
+
+interface TempSnapshotData {
+  content: string
+  stage1: string
+  stage2: string
+  savedAt: string
+}
+
 interface ConversationRecord {
   sessionId: string
   step: number
@@ -64,6 +116,35 @@ export interface StepData {
   generatedSolutions?: GeneratedSolution[]
   // 🔥 新增：当前方案版本号（Step6 使用）
   currentSolutionVersion?: number
+}
+
+interface Step2Data {
+  conversationCount?: number
+  stageCompletionStatus?: boolean[]
+  messages?: StoredMessage[]
+  currentStage?: number
+
+  // 🔥 新增快照字段
+  finalAnswerSnapshot?: string
+  finalAnswerConfirmed?: boolean
+  stage1Snapshot?: string
+  stage2Snapshot?: string
+
+  // 🔥 新增临时保存字段
+  tempSnapshot?: {
+    content: string
+    stage1: string
+    stage2: string
+    savedAt: string
+    editCount?: number // 记录编辑次数
+  }
+
+  // 🔥 新增编辑历史（可选）
+  editHistory?: Array<{
+    timestamp: string
+    contentLength: number
+    action: 'edit_start' | 'edit_change' | 'temp_save' | 'final_confirm'
+  }>
 }
 
 interface SessionData {
@@ -172,6 +253,126 @@ class SimpleStorage {
     }
 
     this.saveSession(session)
+  }
+
+  // ==================== 🔥 新增：Step2 方法 ====================
+  // 保存最终答案快照
+  saveFinalAnswerSnapshot(step: number, snapshot: SnapshotData): void {
+    const key = `step${step}_data`
+    const data = this.getItem<Step2Data>(key) || {}
+
+    data.finalAnswerSnapshot = snapshot.finalAnswerSnapshot
+    data.stage1Snapshot = snapshot.stage1Snapshot
+    data.stage2Snapshot = snapshot.stage2Snapshot
+    data.finalAnswerConfirmed = true
+
+    this.setItem(key, data)
+
+    console.log(`✅ Step${step} - 最终答案快照已保存`)
+  }
+
+  // 保存临时快照
+  saveTempSnapshot(step: number, tempData: TempSnapshotData): void {
+    const key = `step${step}_data`
+    const data = this.getItem<Step2Data>(key) || {}
+
+    data.tempSnapshot = {
+      content: tempData.content,
+      stage1: tempData.stage1,
+      stage2: tempData.stage2,
+      savedAt: tempData.savedAt,
+      editCount: (data.tempSnapshot?.editCount || 0) + 1,
+    }
+
+    this.setItem(key, data)
+
+    console.log(`💾 Step${step} - 临时快照已保存 (第${data.tempSnapshot.editCount}次)`)
+  }
+
+  // 添加编辑历史记录
+  addEditHistory(
+    step: number,
+    action: 'edit_start' | 'edit_change' | 'temp_save' | 'final_confirm',
+    contentLength: number,
+  ): void {
+    const key = `step${step}_data`
+    const data = this.getItem<Step2Data>(key) || {}
+
+    if (!data.editHistory) {
+      data.editHistory = []
+    }
+
+    data.editHistory.push({
+      timestamp: new Date().toISOString(),
+      contentLength,
+      action,
+    })
+
+    this.setItem(key, data)
+
+    console.log(`📝 Step${step} - 编辑历史已记录: ${action}`)
+  }
+
+  // 获取快照数据
+  getSnapshots(step: number): {
+    finalAnswer?: SnapshotData
+    tempSave?: TempSnapshotData
+    editHistory?: Array<{
+      timestamp: string
+      contentLength: number
+      action: string
+    }>
+  } {
+    const key = `step${step}_data`
+    const data = this.getItem<Step2Data>(key)
+
+    if (!data) {
+      return {}
+    }
+
+    const result: {
+      finalAnswer?: SnapshotData
+      tempSave?: TempSnapshotData
+      editHistory?: Array<{
+        timestamp: string
+        contentLength: number
+        action: string
+      }>
+    } = {}
+
+    // 最终答案快照
+    if (data.finalAnswerSnapshot && data.finalAnswerConfirmed) {
+      result.finalAnswer = {
+        finalAnswerSnapshot: data.finalAnswerSnapshot,
+        stage1Snapshot: data.stage1Snapshot || '',
+        stage2Snapshot: data.stage2Snapshot || '',
+        confirmedAt: new Date().toISOString(), // 可以从其他地方获取
+      }
+    }
+
+    // 临时保存
+    if (data.tempSnapshot) {
+      result.tempSave = data.tempSnapshot
+    }
+
+    // 编辑历史
+    if (data.editHistory) {
+      result.editHistory = data.editHistory
+    }
+
+    return result
+  }
+
+  // 清除临时快照
+  clearTempSnapshot(step: number): void {
+    const key = `step${step}_data`
+    const data = this.getItem<Step2Data>(key)
+
+    if (data && data.tempSnapshot) {
+      delete data.tempSnapshot
+      this.setItem(key, data)
+      console.log(`🗑️ Step${step} - 临时快照已清除`)
+    }
   }
 
   // ==================== 🔥 新增：Step6 方案管理方法 ====================

@@ -1,5 +1,19 @@
 // utils/tracking.ts
 
+export type Step2EventType =
+  | 'step2_enter'
+  | 'step2_answer_submit'
+  | 'step2_help_request'
+  | 'step2_stage_complete'
+  | 'step2_stage_change'
+  | 'step2_conversation_limit_reached'
+  | 'step2_next_step_click'
+  | 'step2_confirm_dialog_open'
+  | 'step2_confirm_dialog_cancel'
+  | 'step2_temp_save'
+  | 'step2_content_edit_start'
+  | 'step2_content_edit_change'
+
 /**
  * 事件数据值的类型
  */

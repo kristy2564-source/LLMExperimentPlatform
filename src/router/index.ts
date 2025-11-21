@@ -61,7 +61,7 @@ const router = createRouter({
       component: UserLogin,
       meta: {
         requiresAuth: false,
-        title: '登录 - 跨学科问题解决专家工作台',
+        title: '登录 - 智能问题解决工作台',
       },
     },
     {
@@ -70,7 +70,7 @@ const router = createRouter({
       component: HomeView,
       meta: {
         requiresAuth: true,
-        title: '首页 - 跨学科问题解决专家工作台',
+        title: '首页 - 智能问题解决工作台',
       },
     },
     {
@@ -79,7 +79,7 @@ const router = createRouter({
       component: ExperimentPlatform,
       meta: {
         requiresAuth: true,
-        title: '实验平台 - 跨学科问题解决专家工作台',
+        title: '实验平台 - 智能问题解决工作台',
       },
       children: [
         {
@@ -173,7 +173,7 @@ const router = createRouter({
 // 全局前置路由守卫
 router.beforeEach((to, from, next) => {
   // 设置页面标题
-  document.title = (to.meta as { title?: string }).title || '跨学科问题解决专家工作台'
+  document.title = (to.meta as { title?: string }).title || '智能问题解决工作台'
 
   // 添加调试信息
   console.log('当前访问路径:', to.path)

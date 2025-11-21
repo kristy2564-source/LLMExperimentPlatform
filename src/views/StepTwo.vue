@@ -192,6 +192,17 @@
 
       <!-- 对话消息区域 -->
       <div class="chat-messages">
+        <!-- 🔥 初始 AI 引导消息 - 根据当前阶段显示 -->
+        <div class="message ai" v-if="currentStageInstruction">
+          <div class="message-avatar">🤖</div>
+          <div class="message-content">
+            <div class="message-text">
+              <strong>{{ currentStage === 1 ? '阶段一：因素识别' : '阶段二：控制设计' }}</strong>
+              <br /><br />
+              {{ currentStageInstruction }}
+            </div>
+          </div>
+        </div>
         <!-- 动态对话消息 - 过滤掉system类型 -->
         <div
           v-for="message in messages.filter((m) => m.type !== 'system')"
@@ -320,7 +331,9 @@
                   帮我完善内容
                   <span v-if="!availableHelpModes.refine" class="used-badge">已使用</span>
                 </div>
-                <div class="option-description">"我好像写得不太清楚，帮我完善一下吧。"</div>
+                <div class="option-description">
+                  "我好像写得不太清楚，帮我完善一下吧。"（请先在输入框中写下答案，再点击该按钮）
+                </div>
               </div>
               <div class="option-arrow">→</div>
             </button>
@@ -434,41 +447,96 @@
       </div>
     </div>
 
-    <!-- 确认弹窗 -->
+    <!-- 确认进入下一步的弹窗 -->
     <div v-if="showConfirmDialog" class="confirm-dialog-overlay" @click="closeConfirmDialog">
       <div class="confirm-dialog" @click.stop>
         <div class="dialog-header">
           <div class="dialog-icon">🎯</div>
           <h3>确认进入下一步</h3>
         </div>
+
+        <!-- 🔥 新增：保存成功提示条（独立显示） -->
+        <transition name="fade">
+          <div v-if="tempSaveStatus" class="save-success-banner">
+            <span class="save-icon">✅</span>
+            <span>{{ tempSaveStatus }}</span>
+            <span class="save-time">{{ lastTempSaveTime }}</span>
+          </div>
+        </transition>
+
         <div class="dialog-content">
-          <p>您即将进入下一个学习阶段。请确认您已经完成了当前阶段的所有思考和分析。</p>
+          <p>您即将完成问题分析阶段，进入下一个学习环节。请确认或修改您的最终内容。</p>
+
+          <!-- 🔥 可编辑的快照区域 -->
+          <div v-if="editableFinalAnswer" class="answer-preview">
+            <div class="preview-header">
+              <span class="preview-icon">📝</span>
+              <span class="preview-title">本步骤的最终内容（可编辑）</span>
+            </div>
+
+            <div class="preview-body">
+              <textarea
+                v-model="editableFinalAnswer"
+                class="preview-textarea"
+                rows="15"
+                placeholder="请输入或修改你的最终内容..."
+              ></textarea>
+
+              <p class="preview-hint">
+                💡 这包含了Stage1（因素识别）的所有回答和Stage2（控制设计）的最终方案。
+                您可以编辑后临时保存，或直接确认进入下一步。
+              </p>
+
+              <div class="char-count">字数：{{ editableFinalAnswer.length }} 字符</div>
+            </div>
+          </div>
+
+          <!-- 完成情况摘要 -->
           <div class="completion-summary">
             <div class="summary-item">
-              <span class="summary-icon">✅</span>
-              <span>已完成 {{ completedStagesCount }}/2 个分析阶段</span>
-            </div>
-            <div class="summary-item">
               <span class="summary-icon">💬</span>
-              <span>进行了 {{ conversationCount }} 轮对话交流</span>
+              <span>进行了 {{ conversationCount }} 轮问题分析讨论</span>
+            </div>
+            <div class="summary-item" v-if="stage1Completed">
+              <span class="summary-icon">✅</span>
+              <span>已完成因素识别阶段</span>
             </div>
             <div class="summary-item" v-if="stage2Completed">
-              <span class="summary-icon">🎯</span>
-              <span>控制逻辑设计已完成</span>
-            </div>
-            <div class="summary-item" v-if="isConversationLimitReached">
-              <span class="summary-icon">⏰</span>
-              <span>已达到最大对话轮次限制</span>
+              <span class="summary-icon">✅</span>
+              <span>已完成控制设计阶段</span>
             </div>
           </div>
+
           <div class="dialog-warning">
             <span class="warning-icon">⚠️</span>
-            <span>进入下一步后，您将无法返回修改当前阶段的答案。</span>
+            <span>点击"确定继续"后，您将无法返回修改当前的问题分析内容。</span>
           </div>
         </div>
+
+        <!-- 🔥 修改：弹窗按钮区域 -->
         <div class="dialog-actions">
-          <button class="cancel-button" @click="closeConfirmDialog">再想想</button>
-          <button class="confirm-button" @click="confirmNextStep">确定继续</button>
+          <!-- 返回对话按钮 -->
+          <button class="cancel-button" @click="closeConfirmDialog">返回对话</button>
+
+          <!-- 🔥 临时保存按钮 - 动态文字和禁用状态 -->
+          <button
+            class="temp-save-button"
+            @click="handleTempSaveInDialog"
+            :disabled="!isContentModified || !editableFinalAnswer.trim()"
+            :class="{ saved: isSaved }"
+          >
+            <span class="save-icon">{{ isSaved ? '✅' : '💾' }}</span>
+            <span>{{ isSaved ? '已保存' : '临时保存' }}</span>
+          </button>
+
+          <!-- 确定继续按钮 -->
+          <button
+            class="confirm-button"
+            @click="confirmNextStep"
+            :disabled="!editableFinalAnswer.trim()"
+          >
+            确定继续
+          </button>
         </div>
       </div>
     </div>
@@ -476,23 +544,134 @@
 </template>
 
 <script setup lang="ts">
-import { ref, computed, onMounted, nextTick, reactive, watch } from 'vue'
+import { ref, computed, reactive, onMounted, nextTick, watch } from 'vue'
 import { useRouter } from 'vue-router'
-import { simpleStorage } from '../../api/utils/simpleStorage.ts'
-import { trackStep2Event } from '../../src/utils/tracking.ts'
+import { simpleStorage } from '../../api/utils/simpleStorage'
+import { trackStep2Event } from '../../src/utils/tracking'
+
+// ==================== 类型定义 ====================
+interface Message {
+  id: string
+  type: 'ai' | 'user' | 'system'
+  content: string
+  timestamp: Date
+  stage?: number
+  step?: number
+}
+
+interface StoredMessage {
+  id: string
+  type: 'ai' | 'user' | 'system'
+  content: string
+  timestamp: string
+  step?: number
+  stage?: number
+}
+
+interface Step2Data {
+  conversationCount?: number
+  stageCompletionStatus?: boolean[]
+  messages?: StoredMessage[]
+  currentStage?: number
+  // 🔥 新增快照字段
+  finalAnswerSnapshot?: string
+  finalAnswerConfirmed?: boolean
+}
+
+interface ConversationData {
+  sessionId: string
+  step: number
+  stage: number
+  userInput: string
+  aiResponse: string
+  conversationCount: number
+  timestamp: Date
+  context: string
+}
+
+interface APIResponse {
+  response: string
+  metadata?: {
+    step?: number
+    stage?: number
+    guidanceMode?: string
+    suggestsCompletion?: boolean
+  }
+  fallbackResponse?: string
+}
+
+// ==================== 基础状态 ====================
+const router = useRouter()
+
+// 对话数据
+const conversationData = reactive({
+  messages: [] as Message[],
+  conversationCount: 0,
+  currentStage: 1,
+  stageCompletionStatus: [false, false],
+  sessionId: '',
+  initialInstructions: {
+    1: '根据监测数据，你认为影响教室舒适度和能耗的关键因素有哪些？',
+    2: '基于这些关键因素，你会设计什么样的自动控制规则？',
+  } as { [key: number]: string },
+})
+
+// UI状态
+const showInfoCard = ref(false)
+const showStageProgress = ref(false)
+const showAnswerArea = ref(false)
+const showConversationWarning = ref(false)
+const showConfirmDialog = ref(false)
+const isGenerating = ref(false)
+const loadingStep = ref(0)
+
+// 输入状态
+const userAnswer = ref('')
+const chatScrollArea = ref<HTMLElement | null>(null)
+
+// 阶段完成状态
+const stage1Completed = ref(false)
+const stage2Completed = ref(false)
+
+// 帮助系统状态
+const showHelpDialog = ref(false)
+const helpMode = ref<'refine' | 'example' | 'custom' | null>(null)
+const customQuestion = ref('')
+const isRequestingHelp = ref(false)
+
+// 🔥 新增：快照相关状态
+const finalAnswerSnapshot = ref('')
+const finalAnswerConfirmed = ref(false)
+const editableFinalAnswer = ref('')
+const stage1Snapshot = ref('')
+const stage2Snapshot = ref('')
+
+// 🔥 新增：临时保存相关
+const tempSaveStatus = ref('')
+const lastTempSaveTime = ref('')
+const isSaved = ref(false) // 🔥 新增：是否已保存
+const originalContent = ref('') // 🔥 新增：原始内容，用于对比
+
+// 🔥 新增：计算属性 - 内容是否被修改
+const isContentModified = computed(() => {
+  return editableFinalAnswer.value !== originalContent.value
+})
 
 // 🔥 新增：帮助系统状态管理
 const helpSystem = reactive({
-  totalCycles: 0, // 已使用的周期数
-  maxCycles: 4, // 最大周期数
+  totalCycles: 0,
+  maxCycles: 4,
   currentCycleUsed: {
-    // 当前周期内已使用的模式
     refine: false,
     example: false,
     custom: false,
   },
-  isInCycle: false, // 是否在帮助周期中
+  isInCycle: false,
 })
+
+// 🔥 新增：限制提示弹窗状态
+const showHelpLimitDialog = ref(false)
+const showCycleLimitDialog = ref(false)
 
 // 计算属性：帮助功能是否可用
 const canUseHelp = computed(() => {
@@ -513,21 +692,12 @@ const hasAvailableModesInCycle = computed(() => {
   return Object.values(availableHelpModes.value).some((available) => available)
 })
 
-// 定义组件通信
-const emit = defineEmits(['update-progress', 'show-next-steps'])
+// 🔥 添加计算属性 - 安全获取当前阶段的引导语
+const currentStageInstruction = computed(() => {
+  return conversationData.initialInstructions?.[currentStage.value] || ''
+})
 
-const router = useRouter()
-
-// 帮助弹窗相关状态
-const showHelpDialog = ref(false)
-const helpMode = ref<'refine' | 'example' | 'custom' | null>(null)
-const customQuestion = ref('')
-
-// 🔥 新增：限制提示弹窗状态
-const showHelpLimitDialog = ref(false)
-const showCycleLimitDialog = ref(false)
-
-// 🔥 新增：帮助按钮 title 计算属性
+// 帮助按钮 title 计算属性
 const getHelpButtonTitle = computed(() => {
   if (!canUseHelp.value) {
     return '已达到帮助次数上限'
@@ -538,7 +708,7 @@ const getHelpButtonTitle = computed(() => {
   return '点击获取智能帮助'
 })
 
-// 🔥 新增：关闭限制提示弹窗的函数
+// 关闭限制提示弹窗的函数
 const closeHelpLimitDialog = () => {
   showHelpLimitDialog.value = false
 }
@@ -546,212 +716,43 @@ const closeHelpLimitDialog = () => {
 const closeCycleLimitDialog = () => {
   showCycleLimitDialog.value = false
 }
+// ==================== 常量配置 ====================
+const MAX_CONVERSATIONS = 10
 
-// 🔥 修改：定义消息类型
-interface Message {
-  id?: string // 可选，因为有些消息可能没有 id
-  type: 'user' | 'ai' | 'system'
-  content: string
-  step: number
-  stage?: number
-  timestamp: string | Date
-}
-
-// 🔥 新增：定义存储的消息类型（从 localStorage 读取的格式）
-interface StoredMessage {
-  id: string
-  type: 'user' | 'ai' | 'system'
-  content: string
-  timestamp: string
-  stage?: number
-  step?: number // 可选，因为旧数据可能没有
-}
-
-// 🔥 新增：定义 Step2 数据结构（添加帮助系统字段）
-interface Step2Data {
-  sessionId: string
-  currentStage: number
-  conversationCount: number
-  stageCompletionStatus: boolean[]
-  messages: StoredMessage[]
-  initialInstructions: {
-    [key: number]: string
-  }
-  // 🔥 新增：帮助系统状态
-  helpSystem?: {
-    totalCycles: number
-    maxCycles: number
-    currentCycleUsed: {
-      refine: boolean
-      example: boolean
-      custom: boolean
-    }
-    isInCycle: boolean
-  }
-}
-
-// 定义API响应类型
-interface APIResponse {
-  response: string
-  metadata?: {
-    step?: number
-    stage?: number
-    guidanceMode?: string
-    suggestsCompletion?: boolean
-  }
-}
-
-// 🔥 定义 event_data 的类型
-interface EventData {
-  helpMode?: 'refine' | 'example' | 'custom'
-  customQuestion?: string
-  actualRequest?: string
-  answerLength?: number
-  stage?: number
-  currentInputLength?: number
-  hasInput?: boolean
-  userDisplayMessage?: string
-  completedStages?: number
-  stage1Complete?: boolean
-  stage2Complete?: boolean
-  finalStage?: number
-  fromStage?: number
-  toStage?: number
-  totalMessages?: number
-  helpCycle?: number
-  // 🔥 修改：这些字段改为 string 类型（逗号分隔）
-  availableModes?: string
-  cycleUsedModes?: string
-  remainingCycles?: number
-  [key: string]: string | number | boolean | undefined // 索引签名
-}
-
-// 定义数据库保存的数据结构
-interface ConversationData {
-  sessionId: string
-  step: number
-  stage: number
-  userInput: string
-  aiResponse: string
-  conversationCount: number
-  timestamp: Date
-  context: string
-  experimentId?: string
-  studentName?: string
-  // 🔥 埋点和元数据字段
-  event_name?: string
-  event_data?: EventData // 🔥 使用明确的类型
-}
-
-// 🔥 修改：从存储中恢复或初始化对话数据
-const rawStepData = simpleStorage.getStep2Data() as Step2Data | null
-
-const conversationData = reactive<{
-  sessionId: string
-  currentStage: number
-  conversationCount: number
-  stageCompletionStatus: boolean[]
-  messages: Message[]
-  initialInstructions: {
-    [key: number]: string
-  }
-}>(
-  rawStepData
-    ? {
-        sessionId: rawStepData.sessionId,
-        currentStage: rawStepData.currentStage,
-        conversationCount: rawStepData.conversationCount,
-        stageCompletionStatus: rawStepData.stageCompletionStatus,
-        messages: rawStepData.messages.map(
-          (msg: StoredMessage): Message => ({
-            id: msg.id,
-            type: msg.type,
-            content: msg.content,
-            step: msg.step || 2,
-            stage: msg.stage,
-            timestamp: msg.timestamp,
-          }),
-        ),
-        initialInstructions: rawStepData.initialInstructions,
-      }
-    : {
-        sessionId: simpleStorage.getSessionId(),
-        currentStage: 1,
-        conversationCount: 0,
-        stageCompletionStatus: [false, false],
-        messages: [],
-        initialInstructions: {
-          1: '根据监测数据，你认为影响教室舒适度和能耗的关键因素有哪些？',
-          2: '基于这些关键因素，你会设计什么样的自动控制规则？',
-        },
-      },
-)
-
-// 🔥 恢复帮助系统状态
-if (rawStepData?.helpSystem) {
-  Object.assign(helpSystem, rawStepData.helpSystem)
-}
-
-// 阶段配置 - 简化版本
 const stageConfig = [
   {
-    label: '因素识别',
-    question:
-      '根据监测数据，你认为影响教室舒适度和能耗的关键因素有哪些？(注：“教室的能耗”即为教室一天中“花掉的电和能量”，能耗高就说明电用得多、浪费多，能耗低就说明更节能、更环保。)',
-    placeholder: '请简要分析影响通风节能的关键因素（如温度、湿度、人数密度等）...',
-    helpText: '我想提问',
-    submitText: '提交',
+    label: '因素识别', // 🔥 添加这个
+    title: '阶段一：因素识别',
+    description: '识别影响教室通风节能的关键因素',
+    placeholder: '请输入你识别到的关键因素...',
+    helpText: '需要帮助',
+    submitText: '提交回答',
   },
   {
-    label: '控制设计',
-    question: '基于这些关键因素，你会设计什么样的自动控制规则？',
-    placeholder: '请设计基本的控制逻辑（如什么条件下开窗、启动空调等）...',
-    helpText: '我想提问',
-    submitText: '提交',
+    label: '控制设计', // 🔥 添加这个
+    title: '阶段二：控制设计',
+    description: '设计自动控制的决策逻辑',
+    placeholder: '请输入你的控制设计方案...',
+    helpText: '需要帮助',
+    submitText: '提交回答',
   },
 ]
 
-// 场景约束
-const constraints = reactive({
-  isExam: false,
-  timeLimitMinutes: 10,
-  allowedDevices: ['空调', '窗户', '风扇'],
-})
+const constraints = {
+  roomSize: '60㎡',
+  capacity: '40人',
+  season: '夏季',
+  outdoorTemp: '22-35℃',
+  acPower: '3.2kW',
+}
 
-// 状态管理
-const showInfoCard = ref(false)
-const showAnswerArea = ref(false)
-const showStageProgress = ref(false)
-const showConversationWarning = ref(false)
-const showConfirmDialog = ref(false)
-const userAnswer = ref('')
-const isGenerating = ref(false)
-const loadingStep = ref(1)
-
-// 新增：阶段完成状态追踪
-const stage1Completed = ref(false)
-const stage2Completed = ref(false)
-
-// 对话轮次控制
-const MAX_CONVERSATIONS = 8
-
-// 计算属性
+// ==================== 计算属性 ====================
+const currentStage = computed(() => conversationData.currentStage)
 const conversationCount = computed(() => conversationData.conversationCount)
-const currentStage = computed({
-  get: () => conversationData.currentStage,
-  set: (val) => {
-    conversationData.currentStage = val
-    simpleStorage.updateCurrentStage(2, val)
-  },
-})
 const stageCompletionStatus = computed(() => conversationData.stageCompletionStatus)
 const messages = computed(() => conversationData.messages)
-
 const canSubmit = computed(() => userAnswer.value.trim().length > 0)
 const isConversationLimitReached = computed(() => conversationCount.value >= MAX_CONVERSATIONS)
-const completedStagesCount = computed(
-  () => stageCompletionStatus.value.filter((status) => status).length,
-)
 
 const currentStagePlaceholder = computed(() => {
   if (isConversationLimitReached.value) {
@@ -772,201 +773,269 @@ const allStagesCompleted = computed(() => {
   return stageCompletionStatus.value.every((status) => status) || stage2Completed.value
 })
 
-// 滚动容器引用
-const chatScrollArea = ref<HTMLElement | null>(null)
+// ==================== 🔥 快照生成函数 ====================
 
-// 🔥 监听对话轮次变化（添加埋点）
-watch(conversationCount, async (newCount) => {
-  if (newCount >= 7) {
-    showConversationWarning.value = true
-    nextTick(() => {
-      if (chatScrollArea.value) {
-        chatScrollArea.value.scrollTo({
-          top: 0,
-          behavior: 'smooth',
-        })
-      }
-    })
+// 生成Stage1的快照 - 只包含学生在因素识别阶段的所有回答（过滤掉求助消息）
+const generateStage1Snapshot = (): string => {
+  // 🔥 过滤掉帮助请求消息
+  const helpRequestPatterns = [
+    /^💬\s*帮我完善/,
+    /^💡\s*能给我看看例子/,
+    /^✍️\s*我想问/,
+    /帮我完善内容/,
+    /看看例子/,
+    /我想问：/,
+  ]
+
+  const stage1UserMessages = conversationData.messages.filter((m) => {
+    if (m.stage !== 1 || m.type !== 'user') return false
+
+    // 🔥 检查是否是帮助请求消息
+    const isHelpRequest = helpRequestPatterns.some((pattern) => pattern.test(m.content))
+    return !isHelpRequest
+  })
+
+  if (stage1UserMessages.length === 0) {
+    return '### 阶段一：因素识别\n\n（尚未完成）'
   }
 
-  // 🔥 埋点 - 达到对话上限
-  if (newCount === MAX_CONVERSATIONS) {
-    await trackStep2Event(
-      'step2_conversation_limit_reached',
-      conversationData.sessionId,
-      currentStage.value,
-      newCount,
-      {
-        finalStage: currentStage.value,
-      },
-    )
-  }
-})
+  let content = '### 阶段一：因素识别\n\n'
 
-// 🔥 监听阶段切换（添加埋点）
-watch(currentStage, async (newStage, oldStage) => {
-  if (oldStage && newStage !== oldStage) {
-    await trackStep2Event(
-      'step2_stage_change',
-      conversationData.sessionId,
-      newStage,
-      conversationData.conversationCount,
-      {
-        fromStage: oldStage,
-        toStage: newStage,
-      },
-    )
-  }
-})
+  stage1UserMessages.forEach((msg, index) => {
+    content += `**回答 ${index + 1}：**\n${msg.content}\n\n`
+  })
 
-// 🔥 添加阶段完成检测（添加埋点）
-const checkStageCompletion = async (stage: number, userAnswer: string, aiResponse: string) => {
-  const shouldComplete = shouldAdvanceStage(stage, conversationData.messages, aiResponse)
-
-  if (shouldComplete) {
-    if (stage === 1) {
-      stage1Completed.value = true
-      simpleStorage.updateStageStatus(2, 1, true)
-      conversationData.stageCompletionStatus[0] = true
-
-      // 🔥 埋点 - 阶段1完成
-      await trackStep2Event(
-        'step2_stage_complete',
-        conversationData.sessionId,
-        1,
-        conversationData.conversationCount,
-        {
-          stage: 1,
-          totalMessages: conversationData.messages.filter((m) => m.stage === 1).length,
-        },
-      )
-    } else if (stage === 2) {
-      stage2Completed.value = true
-      simpleStorage.updateStageStatus(2, 2, true)
-      conversationData.stageCompletionStatus[1] = true
-
-      // 🔥 埋点 - 阶段2完成
-      await trackStep2Event(
-        'step2_stage_complete',
-        conversationData.sessionId,
-        2,
-        conversationData.conversationCount,
-        {
-          stage: 2,
-          totalMessages: conversationData.messages.filter((m) => m.stage === 2).length,
-        },
-      )
-
-      emit('update-progress', 2)
-      emit('show-next-steps')
-    }
-  }
-
-  return shouldComplete
+  return content.trim()
 }
 
-// 添加AI引导问题
-function addSystemInstruction(stage: number) {
-  const ventilationFocusedQuestions: Record<1 | 2, string> = {
-    1: '根据监测数据，你认为影响教室舒适度和能耗的关键因素有哪些？(注：“教室的能耗”即为教室一天中“花掉的电和能量”，能耗高就说明电用得多、浪费多，能耗低就说明更节能、更环保。)',
-    2: '基于这些关键因素，你会设计什么样的自动控制规则？',
+//生成Stage2的快照 - 只包含学生最后一次有效回复（排除求助信息）
+const generateStage2Snapshot = (): string => {
+  // 🔥 过滤掉帮助请求消息
+  const helpRequestPatterns = [
+    /^💬\s*帮我完善/,
+    /^💡\s*能给我看看例子/,
+    /^✍️\s*我想问/,
+    /帮我完善内容/,
+    /看看例子/,
+    /我想问：/,
+  ]
+
+  const stage2UserMessages = conversationData.messages.filter((m) => {
+    if (m.stage !== 2 || m.type !== 'user') return false
+
+    // 🔥 检查是否是帮助请求消息
+    const isHelpRequest = helpRequestPatterns.some((pattern) => pattern.test(m.content))
+    return !isHelpRequest
+  })
+
+  if (stage2UserMessages.length === 0) {
+    return '### 阶段二：控制设计\n\n（尚未完成）'
   }
 
-  const currentStageMessages = conversationData.messages.filter((m) => m.stage === stage)
+  // 找到最后一条有效的学生消息（内容长度>20）
+  const lastValidMessage = [...stage2UserMessages].reverse().find((msg) => {
+    return msg.content.trim().length > 20
+  })
 
-  if (currentStageMessages.length > 0) {
-    console.log(`阶段${stage}已有${currentStageMessages.length}条消息，跳过系统指令`)
+  if (lastValidMessage) {
+    return `### 阶段二：控制设计\n\n**我的最终方案：**\n${lastValidMessage.content}`
+  }
+
+  return '### 阶段二：控制设计\n\n（尚未提交有效内容）'
+}
+
+/**
+ * 合并生成完整的快照
+ */
+const generateCompleteSnapshot = (): string => {
+  stage1Snapshot.value = generateStage1Snapshot()
+  stage2Snapshot.value = generateStage2Snapshot()
+
+  return `${stage1Snapshot.value}\n\n---\n\n${stage2Snapshot.value}`
+}
+
+// ==================== 🔥 临时保存功能 ====================
+
+/**
+ * 在弹窗中临时保存（不确认下一步）
+ */
+const handleTempSaveInDialog = async () => {
+  simpleStorage.setItem('step2_temp_snapshot', {
+    content: editableFinalAnswer.value,
+    stage1: stage1Snapshot.value,
+    stage2: stage2Snapshot.value,
+    savedAt: new Date().toISOString(),
+  })
+
+  // 🔥 埋点 - 临时保存
+  await trackStep2Event(
+    'step2_temp_save',
+    conversationData.sessionId,
+    currentStage.value,
+    conversationData.conversationCount,
+    {
+      contentLength: editableFinalAnswer.value.length,
+      stage1Length: stage1Snapshot.value.length,
+      stage2Length: stage2Snapshot.value.length,
+      wasModified: editableFinalAnswer.value !== originalContent.value,
+      saveTimestamp: new Date().toISOString(),
+    },
+  )
+
+  isSaved.value = true
+  originalContent.value = editableFinalAnswer.value
+
+  tempSaveStatus.value = '✅ 保存成功'
+  lastTempSaveTime.value = new Date().toLocaleTimeString('zh-CN', {
+    hour: '2-digit',
+    minute: '2-digit',
+  })
+
+  setTimeout(() => {
+    tempSaveStatus.value = ''
+  }, 3000)
+
+  console.log('💾 Step2 - 临时保存成功，内容长度:', editableFinalAnswer.value.length)
+}
+
+// ==================== 弹窗控制 ====================
+
+/**
+ * 打开确认弹窗时，检查是否有临时保存的内容
+ */
+const handleNextStep = async () => {
+  // 🔥 埋点 - 打开确认弹窗
+  await trackStep2Event(
+    'step2_confirm_dialog_open',
+    conversationData.sessionId,
+    currentStage.value,
+    conversationData.conversationCount,
+    {
+      hasStage1Complete: stage1Completed.value,
+      hasStage2Complete: stage2Completed.value,
+      totalConversations: conversationData.conversationCount,
+    },
+  )
+
+  const tempSaved = simpleStorage.getItem<{
+    content: string
+    savedAt: string
+  }>('step2_temp_snapshot')
+
+  if (tempSaved?.content) {
+    editableFinalAnswer.value = tempSaved.content
+    lastTempSaveTime.value = new Date(tempSaved.savedAt).toLocaleTimeString('zh-CN', {
+      hour: '2-digit',
+      minute: '2-digit',
+    })
+    console.log('📂 Step2 - 加载临时保存的内容')
+  } else {
+    finalAnswerSnapshot.value = generateCompleteSnapshot()
+    editableFinalAnswer.value = finalAnswerSnapshot.value
+  }
+
+  originalContent.value = editableFinalAnswer.value
+  isSaved.value = false
+
+  showConfirmDialog.value = true
+  console.log('📝 Step2 - 打开确认弹窗')
+}
+
+const closeConfirmDialog = async () => {
+  // 🔥 埋点 - 关闭确认弹窗
+  await trackStep2Event(
+    'step2_confirm_dialog_cancel',
+    conversationData.sessionId,
+    currentStage.value,
+    conversationData.conversationCount,
+    {
+      hadEdits: editableFinalAnswer.value !== originalContent.value,
+      contentLength: editableFinalAnswer.value.length,
+    },
+  )
+
+  showConfirmDialog.value = false
+}
+
+/**
+ * 🔥 确认进入下一步（添加埋点）
+ */
+const confirmNextStep = async () => {
+  // 使用编辑后的内容作为最终快照
+  finalAnswerSnapshot.value = editableFinalAnswer.value.trim()
+  finalAnswerConfirmed.value = true
+  showConfirmDialog.value = false
+
+  // 1. 保存到 localStorage（Step6 会读取）
+  simpleStorage.setItem('step2_final_answer', {
+    content: finalAnswerSnapshot.value,
+    stage1: stage1Snapshot.value,
+    stage2: stage2Snapshot.value,
+    confirmedAt: new Date().toISOString(),
+  })
+
+  // 2. 🔥 埋点 - 点击继续下一步
+  await trackStep2Event(
+    'step2_next_step_click',
+    conversationData.sessionId,
+    currentStage.value,
+    conversationData.conversationCount,
+    {
+      completedStages: conversationData.stageCompletionStatus.filter((s) => s).length,
+      stage1Complete: stage1Completed.value,
+      stage2Complete: stage2Completed.value,
+      finalAnswerLength: finalAnswerSnapshot.value.length,
+      wasEdited: editableFinalAnswer.value !== generateCompleteSnapshot(),
+    },
+  )
+
+  // 3. 清除临时保存
+  simpleStorage.removeItem('step2_temp_snapshot')
+
+  // 4. 保存到 storage（包含快照）
+  saveToStorage()
+
+  // 5. 跳转到下一步
+  goToNextStep()
+}
+
+const goToNextStep = () => {
+  router.push('/experiment/step3')
+}
+
+// ==================== 对话提交 ====================
+
+const submitAnswer = async () => {
+  if (!canSubmit.value || isGenerating.value || isConversationLimitReached.value) {
+    console.log('❌ 无法提交：', {
+      canSubmit: canSubmit.value,
+      isGenerating: isGenerating.value,
+      limitReached: isConversationLimitReached.value,
+    })
     return
   }
 
-  if (stage === 1 || stage === 2) {
-    const questionText = ventilationFocusedQuestions[stage as 1 | 2]
-    addMessage('ai', questionText, stage)
+  const currentAnswer = userAnswer.value.trim()
+  const currentStageNum = conversationData.currentStage
 
-    saveConversationToDB({
-      sessionId: conversationData.sessionId,
-      step: 2,
-      stage,
-      userInput: '[SYSTEM_INSTRUCTION]',
-      aiResponse: questionText,
-      conversationCount: conversationData.conversationCount,
-      timestamp: new Date(),
-      context: `stage_${stage}_system_instruction`,
-    })
-
-    console.log(`✅ 已添加阶段${stage}的系统指令`)
-  }
-}
-
-// 改进的阶段推进判断 - 与后端保持一致
-function shouldAdvanceStage(
-  stage: number,
-  conversationHistory: Message[],
-  aiResponse: string,
-): boolean {
-  const currentStageAnswers = conversationHistory.filter(
-    (m) => m.type === 'user' && m.stage === stage,
+  // 🔥 埋点 - 提交答案
+  await trackStep2Event(
+    'step2_answer_submit',
+    conversationData.sessionId,
+    currentStageNum,
+    conversationData.conversationCount + 1,
+    {
+      answerLength: currentAnswer.length,
+      currentStage: currentStageNum,
+    },
   )
 
-  if (stage === 1) {
-    const userText = currentStageAnswers.map((m) => m.content.toLowerCase()).join(' ')
-    const mentionedFactors = [
-      /温度/.test(userText),
-      /湿度/.test(userText),
-      /(co2|二氧化碳|空气质量)/.test(userText),
-      /(人数|密度|布局)/.test(userText),
-    ].filter(Boolean).length
-
-    const isComplete = currentStageAnswers.length >= 1 && mentionedFactors >= 2
-    console.log(`📊 因素识别评估: 提到${mentionedFactors}个因素, 完成状态:${isComplete}`)
-    return isComplete
-  } else if (stage === 2) {
-    const userText = currentStageAnswers.map((m) => m.content.toLowerCase()).join(' ')
-
-    const hasTemperatureThreshold = /(\d+度|26|24|25|28|30)/.test(userText)
-    const hasAction = /(开窗|关窗|空调|风扇|排风|通风)/.test(userText)
-    const hasCondition = /(当|如果|若|超过|高于|低于|大于|小于)/.test(userText)
-    const hasDetailedLogic = userText.length > 40
-    const hasMultipleDevices = (userText.match(/(开窗|空调|风扇|排风)/g) || []).length >= 2
-
-    const isComplete =
-      currentStageAnswers.length >= 1 &&
-      hasTemperatureThreshold &&
-      hasAction &&
-      hasCondition &&
-      hasDetailedLogic &&
-      hasMultipleDevices
-
-    console.log(
-      `📊 控制逻辑评估: 温度阈值:${hasTemperatureThreshold}, 行动:${hasAction}, 条件:${hasCondition}, 详细度:${hasDetailedLogic}, 多设备:${hasMultipleDevices}, 完成状态:${isComplete}`,
-    )
-    return isComplete
-  }
-
-  return false
-}
-
-// 获取最近AI问题用于防重复
-function getRecentAIQuestions(messages: Message[], count = 2): string {
-  return messages
-    .filter((m) => m.type === 'ai')
-    .slice(-count)
-    .map((m) => m.content)
-    .join('；')
-}
-
-// 🔥 核心提交函数（添加埋点）
-async function submitAnswer() {
-  if (!canSubmit.value || isConversationLimitReached.value) return
-
-  simpleStorage.updateConversationCount(2, conversationData.conversationCount + 1)
-  conversationData.conversationCount += 1
-
-  addMessage('user', userAnswer.value, currentStage.value)
+  addMessage('user', currentAnswer, currentStageNum)
+  userAnswer.value = ''
 
   // 🔥 重置帮助周期
   if (helpSystem.isInCycle) {
-    console.log(`🔄 重置帮助周期，已使用周期数: ${helpSystem.totalCycles}`)
+    console.log(`🔄 Step2 - 重置帮助周期，已使用周期数: ${helpSystem.totalCycles}`)
     helpSystem.isInCycle = false
     helpSystem.currentCycleUsed = {
       refine: false,
@@ -976,23 +1045,11 @@ async function submitAnswer() {
     saveHelpSystemState()
   }
 
-  // 🔥 埋点 - 提交答案
-  await trackStep2Event(
-    'step2_answer_submit',
-    conversationData.sessionId,
-    currentStage.value,
-    conversationData.conversationCount,
-    {
-      answerLength: userAnswer.value.length,
-      stage: currentStage.value,
-    },
-  )
+  conversationData.conversationCount++
+  simpleStorage.updateConversationCount(2, conversationData.conversationCount)
 
-  const currentAnswer = userAnswer.value
-  const currentStageNum = currentStage.value
-  userAnswer.value = ''
   isGenerating.value = true
-  loadingStep.value = 1
+  loadingStep.value = 0
 
   const stepInterval = setInterval(() => {
     if (loadingStep.value < 3) {
@@ -1037,20 +1094,19 @@ async function submitAnswer() {
           simpleStorage.updateCurrentStage(2, 2)
           const newData = simpleStorage.getStep2Data() as Step2Data | null
           if (newData) {
-            // 🔥 转换消息格式
-            conversationData.messages = newData.messages.map(
+            conversationData.messages = newData.messages!.map(
               (msg: StoredMessage): Message => ({
                 id: msg.id,
                 type: msg.type,
                 content: msg.content,
                 step: msg.step || 2,
                 stage: msg.stage,
-                timestamp: msg.timestamp,
+                timestamp: new Date(msg.timestamp),
               }),
             )
-            conversationData.conversationCount = newData.conversationCount
-            conversationData.currentStage = newData.currentStage
-            conversationData.stageCompletionStatus = newData.stageCompletionStatus
+            conversationData.conversationCount = newData.conversationCount || 0
+            conversationData.currentStage = newData.currentStage || 2
+            conversationData.stageCompletionStatus = newData.stageCompletionStatus || [false, false]
           }
 
           const stage2Messages = conversationData.messages.filter((m) => m.stage === 2)
@@ -1070,27 +1126,28 @@ async function submitAnswer() {
     addMessage('ai', '抱歉，系统暂时无法处理您的回答，请稍后重试。', currentStageNum)
   } finally {
     isGenerating.value = false
-    loadingStep.value = 1
+    loadingStep.value = 0
+    saveToStorage()
   }
 }
 
+// ==================== 帮助系统 ====================
 // 🔥 保存帮助系统状态到 localStorage
-function saveHelpSystemState() {
+const saveHelpSystemState = () => {
   const stepData = simpleStorage.getStep2Data() as Step2Data | null
   if (stepData) {
-    stepData.helpSystem = {
+    ;(stepData as Step2Data & { helpSystem?: typeof helpSystem }).helpSystem = {
       totalCycles: helpSystem.totalCycles,
       maxCycles: helpSystem.maxCycles,
       currentCycleUsed: { ...helpSystem.currentCycleUsed },
       isInCycle: helpSystem.isInCycle,
     }
-    localStorage.setItem('step2_data', JSON.stringify(stepData))
-    console.log('💾 帮助系统状态已保存')
+    simpleStorage.saveStepData(2, stepData)
+    console.log('💾 Step2 - 帮助系统状态已保存')
   }
 }
 
-// 🔥 打开帮助弹窗（添加埋点）（添加周期管理）
-function requestHelp() {
+const requestHelp = () => {
   if (isGenerating.value || isConversationLimitReached.value) return
 
   // 🔥 检查是否还能使用帮助功能
@@ -1103,7 +1160,8 @@ function requestHelp() {
   if (!helpSystem.isInCycle) {
     helpSystem.totalCycles++
     helpSystem.isInCycle = true
-    console.log(`🆕 开启第 ${helpSystem.totalCycles} 个帮助周期`)
+    saveHelpSystemState()
+    console.log(`🆕 Step2 - 开启第 ${helpSystem.totalCycles} 个帮助周期`)
   }
 
   // 🔥 检查当前周期是否还有可用模式
@@ -1112,7 +1170,7 @@ function requestHelp() {
     return
   }
 
-  // 🔥 埋点 - 点击帮助按钮
+  // 🔥 埋点 - 点击帮助按钮（补充）
   trackStep2Event(
     'step2_help_button_click',
     conversationData.sessionId,
@@ -1122,7 +1180,6 @@ function requestHelp() {
       currentInputLength: userAnswer.value.length,
       hasInput: userAnswer.value.length > 0,
       helpCycle: helpSystem.totalCycles,
-      // 🔥 修改：将数组转为逗号分隔的字符串
       availableModes: Object.entries(availableHelpModes.value)
         .filter(([_, available]) => available)
         .map(([mode]) => mode)
@@ -1133,49 +1190,41 @@ function requestHelp() {
   showHelpDialog.value = true
 }
 
-// 关闭帮助弹窗
-function closeHelpDialog() {
+const closeHelpDialog = () => {
   showHelpDialog.value = false
   helpMode.value = null
   customQuestion.value = ''
 }
 
-// 🔥 选择帮助模式（检查是否可用）
-function selectHelpMode(mode: 'refine' | 'example' | 'custom') {
-  // 🔥 检查该模式在当前周期是否已使用
+const selectHelpMode = (mode: 'refine' | 'example' | 'custom') => {
+  // 🔥 检查该模式是否可用
   if (!availableHelpModes.value[mode]) {
-    console.log(`❌ 模式 ${mode} 在当前周期已使用`)
+    console.log(`❌ Step2 - 模式 ${mode} 在当前周期已使用`)
     return
   }
 
   helpMode.value = mode
-
-  // 如果不是自定义提问，直接执行
   if (mode !== 'custom') {
     executeHelp(mode)
   }
 }
 
-// 提交自定义问题
-function submitCustomQuestion() {
-  if (!customQuestion.value.trim()) {
-    return
-  }
+const submitCustomQuestion = () => {
+  if (!customQuestion.value.trim()) return
   executeHelp('custom', customQuestion.value)
 }
 
-// 🔥 执行帮助请求（添加埋点）（标记模式已使用）
-async function executeHelp(mode: 'refine' | 'example' | 'custom', customQuestionText?: string) {
-  // 关闭弹窗
+const executeHelp = async (mode: 'refine' | 'example' | 'custom', customQuestionText?: string) => {
+  if (isRequestingHelp.value) return
+
+  isRequestingHelp.value = true
   showHelpDialog.value = false
 
   // 🔥 标记该模式在当前周期已使用
   helpSystem.currentCycleUsed[mode] = true
-
-  // 🔥 保存帮助系统状态
   saveHelpSystemState()
 
-  // 🔥 根据帮助模式生成可读的用户消息
+  // 🔥 根据帮助模式生成可读的用户消息和上下文类型
   let userDisplayMessage = ''
   let helpRequestContent = ''
   let helpContextType = ''
@@ -1198,14 +1247,14 @@ async function executeHelp(mode: 'refine' | 'example' | 'custom', customQuestion
       break
   }
 
-  // 🔥 1. 先显示用户的帮助请求消息
-  addMessage('user', userDisplayMessage, currentStage.value)
+  // 🔥 先显示用户的帮助请求消息
+  addMessage('user', userDisplayMessage, conversationData.currentStage)
 
-  // 增加对话计数
-  simpleStorage.updateConversationCount(2, conversationData.conversationCount + 1)
-  conversationData.conversationCount += 1
+  // 🔥 增加对话计数
+  conversationData.conversationCount++
+  simpleStorage.updateConversationCount(2, conversationData.conversationCount)
 
-  // 🔥 埋点 - 使用帮助
+  // 🔥 埋点 - 请求帮助（补充完整信息）
   await trackStep2Event(
     'step2_help_request',
     conversationData.sessionId,
@@ -1214,259 +1263,71 @@ async function executeHelp(mode: 'refine' | 'example' | 'custom', customQuestion
     {
       helpMode: mode,
       helpCycle: helpSystem.totalCycles,
-      // 🔥 修改：将数组转为逗号分隔的字符串
       cycleUsedModes: Object.entries(helpSystem.currentCycleUsed)
         .filter(([_, used]) => used)
-        .map(([mode]) => mode)
+        .map(([m]) => m)
         .join(','),
       remainingCycles: helpSystem.maxCycles - helpSystem.totalCycles,
+      hasUserInput: userAnswer.value.length > 0,
+      customQuestion: mode === 'custom' ? customQuestionText : undefined,
     },
   )
 
+  // 🔥 显示加载状态
   isGenerating.value = true
-  loadingStep.value = 1
+  loadingStep.value = 0
 
   const stepInterval = setInterval(() => {
-    if (loadingStep.value < 2) {
+    if (loadingStep.value < 3) {
       loadingStep.value++
     }
-  }, 2000)
+  }, 3000)
 
   try {
-    // 🔥 2. 调用 API（传递带标记的请求）
-    const helpResponse = await callEnhancedHelpAPI(mode, customQuestionText, helpRequestContent)
+    const helpResponse = await getSmartHelp(mode, customQuestionText)
 
     clearInterval(stepInterval)
 
-    // 🔥 3. 显示 AI 回复
-    addMessage('ai', helpResponse, currentStage.value)
+    // 🔥 添加AI回复
+    addMessage('ai', helpResponse, conversationData.currentStage)
 
-    // 🔥 4. 保存到数据库（包含用户显示消息和实际请求）
+    // 🔥 保存到数据库（补充 event_data）
     await saveConversationToDB({
       sessionId: conversationData.sessionId,
       step: 2,
-      stage: currentStage.value,
-      userInput: userDisplayMessage, // 🔥 保存可读的用户消息
+      stage: conversationData.currentStage,
+      userInput: userDisplayMessage,
       aiResponse: helpResponse,
       conversationCount: conversationData.conversationCount,
       timestamp: new Date(),
-      context: `stage_${currentStage.value}_${helpContextType}`,
-      event_data: {
-        helpMode: mode,
-        customQuestion: mode === 'custom' ? customQuestionText : undefined,
-        actualRequest: helpRequestContent, // 🔥 同时保存实际的请求内容
-      },
+      context: `step2_stage${conversationData.currentStage}_${helpContextType}`,
     })
 
     saveToStorage()
   } catch (error) {
     clearInterval(stepInterval)
-    console.error('获取智能帮助失败:', error)
+    console.error('❌ 智能帮助请求失败:', error)
 
+    // 🔥 错误回退消息
     const fallbackTexts: Record<string, string> = {
-      refine: '试着把你的想法更具体地表达出来，比如可以加上具体的数值或条件。',
-      example: '想想哪些环境参数会直接影响通风需求和能耗？',
-      custom: '根据你的问题，建议从实际的教室环境数据出发来思考。',
+      refine: '试着从多个角度分析影响因素，比如环境参数、人为因素、设备状态等。',
+      example: '比如分析影响因素时：温度、湿度、CO2浓度、人员密度和窗户朝向都会改变通风策略。',
+      custom: '根据你的问题，建议从教室环境和节能目标的角度来思考。',
     }
 
-    addMessage('ai', fallbackTexts[mode] || fallbackTexts.custom, currentStage.value)
+    addMessage('ai', fallbackTexts[mode] || fallbackTexts.custom, conversationData.currentStage)
     saveToStorage()
   } finally {
+    isRequestingHelp.value = false
     isGenerating.value = false
-    loadingStep.value = 1
-
-    // 重置弹窗状态
+    loadingStep.value = 0
     helpMode.value = null
     customQuestion.value = ''
   }
 }
 
-// 🔥 修改：callEnhancedHelpAPI 函数 - 支持三种帮助模式
-// 🔥 修改：callEnhancedHelpAPI 函数 - 接收预生成的请求内容
-async function callEnhancedHelpAPI(
-  helpMode: 'refine' | 'example' | 'custom' = 'custom',
-  customQuestionText?: string,
-  helpRequestContent?: string, // 🔥 新增参数
-): Promise<string> {
-  try {
-    const currentStageUserAnswers = conversationData.messages
-      .filter((m) => m.type === 'user' && m.stage === currentStage.value)
-      .map((m) => m.content)
+// ==================== API调用 ====================
 
-    const conversationHistory = conversationData.messages
-      .filter((msg) => msg.step === 2 && msg.stage === currentStage.value)
-      .map((msg) => ({
-        type: msg.type,
-        content: msg.content,
-        step: msg.step,
-        stage: msg.stage,
-        timestamp: msg.timestamp,
-      }))
-
-    // 🔥 如果没有传入 helpRequestContent，则按原逻辑生成
-    let actualHelpRequest = helpRequestContent
-    if (!actualHelpRequest) {
-      switch (helpMode) {
-        case 'refine':
-          actualHelpRequest = '[REFINE_CONTENT]' + (userAnswer.value || '当前输入内容需要完善')
-          break
-        case 'example':
-          actualHelpRequest = '[REQUEST_EXAMPLE]' + '需要一个参考示例'
-          break
-        case 'custom':
-          actualHelpRequest = '[CUSTOM_QUESTION]' + (customQuestionText || '需要具体指导')
-          break
-      }
-    }
-
-    console.log('📤 Step2 智能帮助 - 发送对话历史:', {
-      count: conversationHistory.length,
-      currentStage: currentStage.value,
-      helpMode,
-      currentStageOnly: true,
-      history: conversationHistory,
-    })
-
-    const response = await fetch('/api/ai/analyze', {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'X-Experiment-ID': localStorage.getItem('experimentId') || '',
-      },
-      body: JSON.stringify({
-        userAnswer: actualHelpRequest, // 🔥 使用带标记的请求
-        context: {
-          isHelpRequest: true,
-          helpMode,
-          customQuestion: customQuestionText,
-          currentUserInput: userAnswer.value,
-          recentQuestions: getRecentAIQuestions(conversationData.messages, 3),
-          ventilationFocus: true,
-          currentStage: currentStage.value,
-          helpContext: {
-            stageName: stageConfig[currentStage.value - 1]?.label,
-            stageQuestion: stageConfig[currentStage.value - 1]?.question,
-            userProgress: currentStageUserAnswers,
-          },
-        },
-        step: 2,
-        stage: currentStage.value,
-        sessionId: conversationData.sessionId,
-        conversationHistory,
-        followUpContext: {
-          currentStage: currentStage.value,
-          conversationCount: conversationData.conversationCount,
-          isSmartHintRequest: true,
-          helpType:
-            helpMode === 'refine'
-              ? 'refine_content'
-              : helpMode === 'example'
-                ? 'request_example'
-                : 'custom_question',
-          needsGuidance: true,
-          previousUserAnswers: currentStageUserAnswers,
-          needsContinuity: true,
-        },
-      }),
-    })
-
-    if (!response.ok) {
-      throw new Error(`API Error: ${response.statusText}`)
-    }
-
-    const data = await response.json()
-
-    console.log('📥 Step2 智能帮助 - 收到响应:', {
-      response: data.response,
-      isSmartHint: data.metadata?.isSmartHint,
-      helpMode,
-    })
-
-    return data.response || '根据你目前的思考，试着从另一个角度来看这个问题。'
-  } catch (error) {
-    console.error('❌ Step2 - 智能帮助API调用失败:', error)
-    throw error
-  }
-}
-
-const handleInput = () => {
-  // 输入内容时不需要额外处理
-}
-
-const handleNextStep = () => {
-  showConfirmDialog.value = true
-}
-
-const closeConfirmDialog = () => {
-  showConfirmDialog.value = false
-}
-
-// 🔥 确认进入下一步（添加埋点）
-const confirmNextStep = async () => {
-  // 🔥 埋点 - 点击继续下一步
-  await trackStep2Event(
-    'step2_next_step_click',
-    conversationData.sessionId,
-    currentStage.value,
-    conversationData.conversationCount,
-    {
-      completedStages: conversationData.stageCompletionStatus.filter((s) => s).length,
-      stage1Complete: stage1Completed.value,
-      stage2Complete: stage2Completed.value,
-    },
-  )
-
-  showConfirmDialog.value = false
-  goToNextStep()
-}
-
-const goToNextStep = () => {
-  router.push('/experiment/step3')
-}
-
-// 🔥 修改：addMessage 函数，确保正确转换格式
-const addMessage = (type: 'ai' | 'user', content: string, stage?: number) => {
-  simpleStorage.addMessage(2, type, content, stage)
-
-  // 🔥 修改：重新同步数据时转换格式
-  const newData = simpleStorage.getStep2Data() as Step2Data | null
-  if (newData) {
-    // 转换消息格式
-    conversationData.messages = newData.messages.map(
-      (msg: StoredMessage): Message => ({
-        id: msg.id,
-        type: msg.type,
-        content: msg.content,
-        step: msg.step || 2, // 确保有 step
-        stage: msg.stage,
-        timestamp: msg.timestamp,
-      }),
-    )
-    conversationData.conversationCount = newData.conversationCount
-    conversationData.currentStage = newData.currentStage
-    conversationData.stageCompletionStatus = newData.stageCompletionStatus
-  }
-
-  nextTick(() => {
-    scrollToBottom()
-  })
-}
-
-const scrollToBottom = () => {
-  if (chatScrollArea.value) {
-    chatScrollArea.value.scrollTop = chatScrollArea.value.scrollHeight
-  }
-}
-
-const formatTime = (timestamp: string | Date) => {
-  const date = typeof timestamp === 'string' ? new Date(timestamp) : timestamp
-  return date.toLocaleTimeString('zh-CN', {
-    hour: '2-digit',
-    minute: '2-digit',
-  })
-}
-
-// 🔥 修改：API调用函数
 async function callAIAPI(
   answer: string,
   stage: number,
@@ -1487,9 +1348,8 @@ async function callAIAPI(
 
     const recentQuestions = getRecentAIQuestions(conversationData.messages)
 
-    // 🔥 修改：传递当前阶段的完整历史，而不是只取最近6条
     const conversationHistory = conversationData.messages
-      .filter((msg) => msg.step === 2 && msg.stage === stage) // 只传递当前阶段的消息
+      .filter((msg) => msg.step === 2 && msg.stage === stage)
       .map((msg) => ({
         type: msg.type,
         content: msg.content,
@@ -1501,7 +1361,7 @@ async function callAIAPI(
     console.log('📤 Step2 - 发送给后端的对话历史:', {
       count: conversationHistory.length,
       stage,
-      currentStageOnly: true, // 标记只传递当前阶段
+      currentStageOnly: true,
       history: conversationHistory,
       userAnswer: answer.substring(0, 50) + (answer.length > 50 ? '...' : ''),
     })
@@ -1522,7 +1382,7 @@ async function callAIAPI(
       stage,
       conversationCount: conversationData.conversationCount,
       sessionId: conversationData.sessionId,
-      conversationHistory, // 🔥 完整的当前阶段历史
+      conversationHistory,
       followUpContext: {
         currentStage: stage,
         conversationCount: conversationData.conversationCount,
@@ -1574,7 +1434,232 @@ async function callAIAPI(
   }
 }
 
-// 保存对话到数据库
+async function getSmartHelp(
+  mode: 'refine' | 'example' | 'custom',
+  customQuestionText?: string,
+): Promise<string> {
+  try {
+    // 🔥 根据模式添加相应的前缀标记
+    const modePrefix = {
+      refine: '[REFINE_CONTENT]',
+      example: '[REQUEST_EXAMPLE]',
+      custom: '[CUSTOM_QUESTION]',
+    }
+
+    const actualInput = customQuestionText || userAnswer.value || ''
+    const userAnswerWithPrefix = `${modePrefix[mode]}${actualInput}`
+
+    const response = await fetch('/api/ai/analyze', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'X-Experiment-ID': localStorage.getItem('experimentId') || '',
+      },
+      body: JSON.stringify({
+        userAnswer: userAnswerWithPrefix, // 🔥 添加前缀
+        step: 2,
+        stage: conversationData.currentStage,
+        context: {
+          ...constraints,
+          helpMode: mode,
+          currentInput: actualInput,
+          helpType:
+            mode === 'refine'
+              ? 'refine_content'
+              : mode === 'example'
+                ? 'request_example'
+                : 'custom_question',
+          needsGuidance: true,
+          previousUserAnswers: conversationData.messages
+            .filter((m) => m.type === 'user' && m.stage === conversationData.currentStage)
+            .map((m) => m.content),
+          needsContinuity: true,
+        },
+        // 🔥 添加对话历史
+        conversationHistory: conversationData.messages
+          .filter((msg) => msg.step === 2 && msg.stage === conversationData.currentStage)
+          .map((msg) => ({
+            type: msg.type,
+            content: msg.content,
+            step: 2,
+            stage: conversationData.currentStage,
+            timestamp: msg.timestamp,
+          })),
+      }),
+    })
+
+    if (!response.ok) {
+      throw new Error(`API Error: ${response.statusText}`)
+    }
+
+    const data = await response.json()
+
+    console.log('📥 Step2 智能帮助 - 收到响应:', {
+      response: data.response,
+      isSmartHint: data.metadata?.isSmartHint,
+      helpMode: mode,
+    })
+
+    return data.response || '根据你目前的思考，试着从另一个角度来看这个问题。'
+  } catch (error) {
+    console.error('❌ Step2 - 智能帮助API调用失败:', error)
+    throw error
+  }
+}
+
+// ==================== 辅助函数 ====================
+const shouldAdvanceStage = (
+  stage: number,
+  conversationHistory: Message[],
+  latestAIResponse: string,
+): boolean => {
+  const currentStageAnswers = conversationHistory.filter(
+    (m) => m.type === 'user' && m.stage === stage,
+  )
+
+  if (stage === 1) {
+    // 🔥 Stage1 判断：检测用户是否提到了关键因素
+    const userText = currentStageAnswers.map((m) => m.content.toLowerCase()).join(' ')
+    const factors = [
+      '温度',
+      'co2',
+      '二氧化碳',
+      '湿度',
+      '人数',
+      '时间',
+      '天气',
+      '设备',
+      '窗',
+      '门',
+      '布局',
+      '朝向',
+    ]
+    const mentionedFactors = factors.filter((f) => userText.includes(f)).length
+
+    // 条件：至少1条消息 且 提到≥2个因素
+    const isComplete = currentStageAnswers.length >= 1 && mentionedFactors >= 2
+
+    console.log(`📊 Stage1 因素识别评估: 提到${mentionedFactors}个因素, 完成状态:${isComplete}`)
+    return isComplete
+  } else if (stage === 2) {
+    // 🔥 Stage2 判断：检测用户是否给出了控制逻辑（降低门槛）
+    const userText = currentStageAnswers.map((m) => m.content.toLowerCase()).join(' ')
+
+    const hasTemperatureThreshold = /(\d+度|26|24|25|28|30)/.test(userText)
+    const hasAction = /(开窗|关窗|空调|风扇|排风|通风)/.test(userText)
+    const hasCondition = /(当|如果|若|超过|高于|低于|大于|小于)/.test(userText)
+
+    // 🔥 降低门槛：只需要 动作+条件 或 温度+动作 即可
+    const isComplete =
+      currentStageAnswers.length >= 1 && hasAction && (hasCondition || hasTemperatureThreshold)
+
+    console.log(
+      `📊 Stage2 控制逻辑评估: 温度阈值:${hasTemperatureThreshold}, 动作:${hasAction}, 条件:${hasCondition}, 完成状态:${isComplete}`,
+    )
+    return isComplete
+  }
+
+  return false
+}
+
+const checkStageCompletion = async (
+  stage: number,
+  userAnswer: string,
+  aiResponse: string,
+): Promise<boolean> => {
+  const shouldComplete = shouldAdvanceStage(stage, conversationData.messages, aiResponse)
+
+  if (shouldComplete) {
+    if (stage === 1) {
+      stage1Completed.value = true
+      simpleStorage.updateStageStatus(2, 1, true)
+      conversationData.stageCompletionStatus[0] = true
+
+      await trackStep2Event(
+        'step2_stage_complete',
+        conversationData.sessionId,
+        stage,
+        conversationData.conversationCount,
+        {
+          stageNumber: 1,
+          totalInteractions: conversationData.messages.filter((m) => m.stage === 1).length,
+        },
+      )
+    } else if (stage === 2) {
+      stage2Completed.value = true
+      simpleStorage.updateStageStatus(2, 2, true)
+      conversationData.stageCompletionStatus[1] = true
+
+      await trackStep2Event(
+        'step2_stage_complete',
+        conversationData.sessionId,
+        stage,
+        conversationData.conversationCount,
+        {
+          stageNumber: 2,
+          totalInteractions: conversationData.messages.filter((m) => m.stage === 2).length,
+        },
+      )
+    }
+
+    return true
+  }
+
+  return false
+}
+
+const addMessage = (type: 'ai' | 'user' | 'system', content: string, stage?: number) => {
+  simpleStorage.addMessage(2, type, content, stage)
+
+  const newData = simpleStorage.getStep2Data() as Step2Data | null
+  if (newData) {
+    conversationData.messages = newData.messages!.map(
+      (msg: StoredMessage): Message => ({
+        id: msg.id,
+        type: msg.type,
+        content: msg.content,
+        step: msg.step || 2,
+        stage: msg.stage,
+        timestamp: new Date(msg.timestamp),
+      }),
+    )
+    conversationData.conversationCount = newData.conversationCount || 0
+    conversationData.currentStage = newData.currentStage || 1
+    conversationData.stageCompletionStatus = newData.stageCompletionStatus || [false, false]
+  }
+
+  nextTick(() => {
+    scrollToBottom()
+  })
+}
+
+const addSystemInstruction = (stage: number) => {
+  const instructions = {
+    1: '现在开始阶段一：请识别影响教室通风节能的关键因素。思考环境参数、人为因素、设备状态等。',
+    2: '现在开始阶段二：基于你识别的因素，请设计自动控制的决策逻辑。考虑触发条件、优先级、冲突处理等。',
+  }
+
+  // 🔥 检查是否已存在该阶段的 system 消息
+  const existingSystemMsg = conversationData.messages.find(
+    (m) => m.type === 'system' && m.stage === stage,
+  )
+  if (existingSystemMsg) {
+    console.log(`阶段${stage}已有系统指令，跳过添加`)
+    return
+  }
+
+  const instruction = instructions[stage as keyof typeof instructions]
+  if (instruction) {
+    addMessage('system', instruction, stage)
+  }
+}
+
+const getRecentAIQuestions = (messages: Message[]): string => {
+  const aiMessages = messages.filter((m) => m.type === 'ai')
+  const recent = aiMessages.slice(-3)
+  return recent.map((m) => m.content).join(' | ')
+}
+
 const saveConversationToDB = async (conversationDataPayload: ConversationData): Promise<void> => {
   try {
     const experimentId = localStorage.getItem('experimentId')
@@ -1600,6 +1685,18 @@ const saveConversationToDB = async (conversationDataPayload: ConversationData): 
 }
 
 const saveToStorage = () => {
+  // 🔥 保存快照数据到 localStorage
+  if (finalAnswerConfirmed.value) {
+    simpleStorage.setItem('step2_final_answer_confirmed', {
+      finalAnswerSnapshot: finalAnswerSnapshot.value,
+      finalAnswerConfirmed: finalAnswerConfirmed.value,
+      savedAt: new Date().toISOString(),
+    })
+  }
+
+  // 🔥 保存帮助系统状态
+  saveHelpSystemState()
+
   console.log('💾 Step2 - 数据已自动保存到本地存储')
 }
 
@@ -1607,7 +1704,26 @@ const getSessionId = () => {
   return simpleStorage.getSessionId()
 }
 
-// 生命周期
+const scrollToBottom = () => {
+  if (chatScrollArea.value) {
+    chatScrollArea.value.scrollTop = chatScrollArea.value.scrollHeight
+  }
+}
+
+const formatTime = (timestamp: string | Date) => {
+  const date = typeof timestamp === 'string' ? new Date(timestamp) : timestamp
+  return date.toLocaleTimeString('zh-CN', {
+    hour: '2-digit',
+    minute: '2-digit',
+  })
+}
+
+const handleInput = () => {
+  // 输入内容时不需要额外处理
+}
+
+// ==================== 生命周期 ====================
+
 const showContentSequentially = async () => {
   showInfoCard.value = true
   await new Promise((resolve) => setTimeout(resolve, 800))
@@ -1618,11 +1734,9 @@ const showContentSequentially = async () => {
   showAnswerArea.value = true
 }
 
-// 🔥 组件挂载时（添加埋点）
 onMounted(async () => {
   console.log('🎬 Step2 组件已挂载')
 
-  // 🔥 埋点 - 进入 Step2
   await trackStep2Event(
     'step2_enter',
     conversationData.sessionId,
@@ -1636,12 +1750,105 @@ onMounted(async () => {
 
   const stepData = simpleStorage.getStep2Data() as Step2Data | null
   if (stepData) {
-    stage1Completed.value = stepData.stageCompletionStatus[0] || false
-    stage2Completed.value = stepData.stageCompletionStatus[1] || false
+    stage1Completed.value = stepData.stageCompletionStatus?.[0] || false
+    stage2Completed.value = stepData.stageCompletionStatus?.[1] || false
+
+    // 🔥 恢复帮助系统状态
+    const stepDataWithHelp = stepData as Step2Data & { helpSystem?: typeof helpSystem }
+    if (stepDataWithHelp.helpSystem) {
+      Object.assign(helpSystem, stepDataWithHelp.helpSystem)
+      console.log('💾 Step2 - 帮助系统状态已恢复:', helpSystem)
+    }
   }
+
+  // 🔥 恢复快照数据（修正）
+  const confirmedData = simpleStorage.getItem<{
+    finalAnswerSnapshot: string
+    finalAnswerConfirmed: boolean
+  }>('step2_final_answer_confirmed')
+
+  if (confirmedData) {
+    finalAnswerSnapshot.value = confirmedData.finalAnswerSnapshot || ''
+    finalAnswerConfirmed.value = confirmedData.finalAnswerConfirmed || false
+  }
+
+  conversationData.sessionId = getSessionId()
 
   addSystemInstruction(conversationData.currentStage)
   showContentSequentially()
+})
+
+// ==================== 监听器 ====================
+
+// 监听编辑框内容变化，添加埋点
+let editStartTracked = false
+
+watch(editableFinalAnswer, async (newValue, oldValue) => {
+  if (newValue !== originalContent.value) {
+    isSaved.value = false
+
+    // 首次编辑时记录
+    if (!editStartTracked && oldValue === originalContent.value) {
+      editStartTracked = true
+      await trackStep2Event(
+        'step2_content_edit_start',
+        conversationData.sessionId,
+        currentStage.value,
+        conversationData.conversationCount,
+        {
+          originalLength: originalContent.value.length,
+        },
+      )
+    }
+  }
+})
+
+// 重置编辑追踪（在弹窗关闭时）
+watch(showConfirmDialog, (newValue) => {
+  if (!newValue) {
+    editStartTracked = false
+  }
+})
+
+watch(conversationCount, async (newCount) => {
+  if (newCount >= 7) {
+    showConversationWarning.value = true
+    nextTick(() => {
+      if (chatScrollArea.value) {
+        chatScrollArea.value.scrollTo({
+          top: 0,
+          behavior: 'smooth',
+        })
+      }
+    })
+  }
+
+  if (newCount === MAX_CONVERSATIONS) {
+    await trackStep2Event(
+      'step2_conversation_limit_reached',
+      conversationData.sessionId,
+      currentStage.value,
+      newCount,
+      {
+        finalStage: currentStage.value,
+      },
+    )
+  }
+})
+
+watch(currentStage, async (newStage, oldStage) => {
+  if (oldStage && newStage !== oldStage) {
+    await trackStep2Event(
+      'step2_stage_change',
+      conversationData.sessionId,
+      newStage,
+      conversationData.conversationCount,
+      {
+        fromStage: oldStage,
+        toStage: newStage,
+      },
+    )
+  }
 })
 </script>
 
@@ -1992,38 +2199,19 @@ onMounted(async () => {
   flex-shrink: 0;
 }
 
+/* 🔥 统一按钮样式 - 移除重复定义 */
 .dialog-actions {
   display: flex;
   gap: 1rem;
-  justify-content: flex-end;
+  padding: 1.5rem 2rem 2rem;
+  justify-content: center; /* 居中 */
 }
 
-.cancel-button,
-.confirm-button {
-  padding: 0.75rem 2rem;
-  border-radius: 25px;
-  font-weight: 600;
-  font-size: 1rem;
-  cursor: pointer;
-  transition: all 0.3s ease;
-  border: none;
-}
-
+/* 🔥 修复：返回按钮 - 浅灰色背景 */
 .cancel-button {
-  background: #f1f5f9;
-  color: #475569;
+  background: #f1f5f9; /* 🔥 改为浅灰色 */
+  color: #475569; /* 🔥 加深文字颜色 */
   border: 2px solid #e2e8f0;
-}
-
-.cancel-button:hover {
-  background: #e2e8f0;
-  transform: translateY(-1px);
-}
-
-.confirm-button {
-  background: linear-gradient(45deg, #10b981, #059669);
-  color: white;
-  box-shadow: 0 4px 12px rgba(16, 185, 129, 0.3);
 }
 
 .confirm-button:hover {
@@ -2833,19 +3021,6 @@ onMounted(async () => {
     font-size: 0.8rem;
     padding: 0.75rem;
   }
-
-  .dialog-actions {
-    flex-direction: column;
-    gap: 0.75rem;
-  }
-
-  .cancel-button,
-  .confirm-button {
-    width: 100%;
-    padding: 0.75rem;
-    font-size: 0.9rem;
-  }
-
   .warning-content {
     padding: 0.75rem 1rem;
   }
@@ -3335,5 +3510,224 @@ onMounted(async () => {
 .cycle-tip {
   font-size: 0.85rem;
   color: #64748b;
+}
+
+/* 临时保存按钮 */
+.temp-save-button:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+  transform: none;
+}
+
+.save-icon {
+  font-size: 1.1rem;
+}
+
+/* 可编辑快照文本框 */
+.preview-textarea {
+  width: 100%;
+  border: 2px solid #0ea5e9;
+  border-radius: 8px;
+  padding: 0.75rem;
+  font-size: 0.9rem;
+  line-height: 1.6;
+  color: #334155;
+  background: white;
+  resize: vertical;
+  min-height: 300px; /* Step2内容较多，需要更高 */
+  font-family: inherit;
+  transition: all 0.3s ease;
+}
+
+.preview-textarea:focus {
+  outline: none;
+  border-color: #0284c7;
+  box-shadow: 0 0 0 3px rgba(14, 165, 233, 0.1);
+}
+
+/* 🔥 快照预览区域 */
+.answer-preview {
+  background: linear-gradient(135deg, #f0f9ff 0%, #e0f2fe 100%);
+  border: 2px solid #0ea5e9;
+  border-radius: 12px;
+  padding: 1rem;
+  margin: 1.5rem 0;
+  animation: slideIn 0.3s ease-out;
+}
+
+.preview-header {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  margin-bottom: 0.75rem;
+  padding-bottom: 0.5rem;
+  border-bottom: 1px solid rgba(14, 165, 233, 0.2);
+}
+
+.preview-icon {
+  font-size: 1.2rem;
+}
+
+.preview-title {
+  font-weight: 600;
+  color: #0369a1;
+  font-size: 0.95rem;
+}
+
+.preview-body {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+
+.preview-text {
+  color: #334155;
+  font-size: 0.9rem;
+  line-height: 1.5;
+  background: white;
+  padding: 0.75rem;
+  border-radius: 8px;
+  border-left: 3px solid #0ea5e9;
+  margin: 0;
+  white-space: pre-wrap;
+  word-wrap: break-word;
+}
+
+.preview-hint {
+  color: #64748b;
+  font-size: 0.85rem;
+  margin: 0;
+  font-style: italic;
+}
+
+/* 🔥 保存成功提示条 */
+.save-success-banner {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  background: linear-gradient(135deg, #d1fae5 0%, #a7f3d0 100%);
+  border: 2px solid #10b981;
+  border-radius: 8px;
+  padding: 0.75rem 1rem;
+  margin: 0 2rem 1rem 2rem;
+  font-size: 0.9rem;
+  color: #065f46;
+  font-weight: 500;
+  box-shadow: 0 2px 8px rgba(16, 185, 129, 0.2);
+  animation: slideDown 0.3s ease-out;
+}
+
+.save-success-banner .save-icon {
+  font-size: 1.1rem;
+}
+
+.save-time {
+  margin-left: auto;
+  font-size: 0.85rem;
+  opacity: 0.8;
+}
+
+/* fade 过渡动画 */
+.fade-enter-active,
+.fade-leave-active {
+  transition: opacity 0.3s ease;
+}
+
+.fade-enter-from,
+.fade-leave-to {
+  opacity: 0;
+}
+
+.cancel-button,
+.temp-save-button,
+.confirm-button {
+  padding: 0.875rem 1.75rem; /* 🔥 增加左右内边距 */
+  border-radius: 25px;
+  font-weight: 600;
+  font-size: 0.95rem;
+  cursor: pointer;
+  transition: all 0.3s ease;
+  border: none;
+  display: inline-flex; /* 🔥 改为 inline-flex */
+  align-items: center;
+  justify-content: center;
+  gap: 0.5rem;
+  white-space: nowrap; /* 🔥 防止文字换行 */
+}
+
+.cancel-button:hover {
+  background: #f8fafc;
+  border-color: #cbd5e1;
+  transform: translateY(-2px);
+}
+
+/* 🔥 临时保存按钮 */
+.temp-save-button {
+  background: linear-gradient(45deg, #10b981, #059669);
+  color: white;
+  box-shadow: 0 4px 12px rgba(16, 185, 129, 0.3);
+}
+
+.temp-save-button:hover:not(:disabled) {
+  transform: translateY(-2px);
+  box-shadow: 0 6px 16px rgba(16, 185, 129, 0.4);
+}
+
+.temp-save-button:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+  transform: none;
+}
+
+/* 🔥 已保存状态 */
+.temp-save-button.saved {
+  background: linear-gradient(45deg, #6b7280, #4b5563);
+  box-shadow: 0 4px 12px rgba(107, 114, 128, 0.3);
+}
+
+.temp-save-button.saved:hover:not(:disabled) {
+  box-shadow: 0 4px 12px rgba(107, 114, 128, 0.3);
+  transform: none;
+}
+
+.confirm-button {
+  background: linear-gradient(45deg, #3b82f6, #2563eb);
+  color: white;
+  box-shadow: 0 4px 12px rgba(59, 130, 246, 0.3);
+}
+
+.confirm-button:hover:not(:disabled) {
+  transform: translateY(-2px);
+  box-shadow: 0 6px 16px rgba(59, 130, 246, 0.4);
+}
+
+.confirm-button:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+  transform: none;
+}
+
+.temp-save-button .save-icon {
+  font-size: 1.1rem;
+}
+
+/* 移动端适配 */
+@media (max-width: 768px) {
+  .dialog-actions {
+    flex-direction: column;
+    gap: 0.75rem;
+    align-items: stretch; /* 🔥 移动端按钮拉伸 */
+  }
+
+  .cancel-button,
+  .temp-save-button,
+  .confirm-button {
+    width: 100%; /* 🔥 移动端按钮全宽 */
+  }
+
+  .save-success-banner {
+    margin: 0 1.5rem 1rem 1.5rem;
+    font-size: 0.85rem;
+  }
 }
 </style>

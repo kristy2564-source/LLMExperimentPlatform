@@ -255,7 +255,9 @@
                   帮我完善内容
                   <span v-if="!availableHelpModes.refine" class="used-badge">已使用</span>
                 </div>
-                <div class="option-description">"我好像写得不太清楚，帮我完善一下吧。"</div>
+                <div class="option-description">
+                  "我好像写得不太清楚，帮我完善一下吧。"（请先在输入框中写下答案，再点击该按钮）
+                </div>
               </div>
               <div class="option-arrow">→</div>
             </button>
@@ -408,7 +410,7 @@
           </div>
         </div>
         <div class="dialog-actions">
-          <button class="cancel-button" @click="closeConfirmDialog">再想想</button>
+          <button class="cancel-button" @click="closeConfirmDialog">返回对话</button>
           <button class="confirm-button" @click="confirmNextStep">确定继续</button>
         </div>
       </div>

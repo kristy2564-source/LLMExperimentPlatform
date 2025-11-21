@@ -251,7 +251,9 @@
                   帮我完善内容
                   <span v-if="!availableHelpModes.refine" class="used-badge">已使用</span>
                 </div>
-                <div class="option-description">"我好像写得不太清楚，帮我完善一下吧。"</div>
+                <div class="option-description">
+                  "我好像写得不太清楚，帮我完善一下吧。"（请先在输入框中写下答案，再点击该按钮）
+                </div>
               </div>
               <div class="option-arrow">→</div>
             </button>
@@ -365,7 +367,7 @@
       </div>
     </div>
 
-    <!-- 确认弹窗 -->
+    <!-- 🔥 修改：确认弹窗 - 可编辑版本 -->
     <div v-if="showConfirmDialog" class="confirm-dialog-overlay" @click="closeConfirmDialog">
       <div class="confirm-dialog" @click.stop>
         <div class="dialog-header">
@@ -373,9 +375,26 @@
           <h3>确认进入下一步</h3>
         </div>
         <div class="dialog-content">
-          <p>
-            您即将完成策略制定阶段，进入下一个学习环节。请确认您已经充分思考并制定了节能策略方案。
-          </p>
+          <p>您即将完成策略制定阶段，进入下一个学习环节。请确认或修改您的最终策略方案。</p>
+
+          <!-- 🔥 新增：可编辑的快照区域 -->
+          <div v-if="editableFinalAnswer" class="answer-preview">
+            <div class="preview-header">
+              <span class="preview-icon">📝</span>
+              <span class="preview-title">本步骤的最终内容（可编辑）</span>
+            </div>
+            <div class="preview-body">
+              <textarea
+                v-model="editableFinalAnswer"
+                class="preview-textarea"
+                rows="10"
+                placeholder="请输入或修改你的最终策略方案..."
+              ></textarea>
+              <p class="preview-hint">💡 这是您最后一次修改机会，请仔细检查后点击"确定继续"。</p>
+              <div class="char-count">字数：{{ editableFinalAnswer.length }} 字符</div>
+            </div>
+          </div>
+
           <div class="completion-summary">
             <div class="summary-item">
               <span class="summary-icon">💬</span>
@@ -396,8 +415,14 @@
           </div>
         </div>
         <div class="dialog-actions">
-          <button class="cancel-button" @click="closeConfirmDialog">再想想</button>
-          <button class="confirm-button" @click="confirmNextStep">确定继续</button>
+          <button class="cancel-button" @click="closeConfirmDialog">返回对话</button>
+          <button
+            class="confirm-button"
+            @click="confirmNextStep"
+            :disabled="!editableFinalAnswer.trim()"
+          >
+            确定继续
+          </button>
         </div>
       </div>
     </div>
@@ -409,6 +434,11 @@ import { ref, computed, onMounted, nextTick, reactive, watch } from 'vue'
 import { useRouter } from 'vue-router'
 import { simpleStorage } from '../../api/utils/simpleStorage'
 import { trackStep3Event } from '../../src/utils/tracking'
+
+// 🔥 新增：最终答案快照相关
+const finalAnswerSnapshot = ref('') // 本步最终答案快照
+const finalAnswerConfirmed = ref(false) // 是否已确认最终答案
+const editableFinalAnswer = ref('') // 可编辑的最终答案（用于弹窗中编辑）
 
 // 🔥 新增：帮助系统状态管理
 const helpSystem = reactive({
@@ -496,27 +526,6 @@ interface StoredMessage {
   step?: number
 }
 
-// 🔥 定义 Step3 数据结构
-interface Step3Data {
-  sessionId: string
-  conversationCount: number
-  stageCompletionStatus: boolean[]
-  messages: StoredMessage[]
-  currentStage: number
-  isCompleted: boolean
-  // 🔥 新增：帮助系统状态
-  helpSystem?: {
-    totalCycles: number
-    maxCycles: number
-    currentCycleUsed: {
-      refine: boolean
-      example: boolean
-      custom: boolean
-    }
-    isInCycle: boolean
-  }
-}
-
 // 定义API响应类型
 interface APIResponse {
   response: string
@@ -561,6 +570,29 @@ interface ConversationData {
   event_data?: EventData
 }
 
+// 🔥 定义 Step3 数据结构
+interface Step3Data {
+  sessionId: string
+  conversationCount: number
+  stageCompletionStatus: boolean[]
+  messages: StoredMessage[]
+  currentStage: number
+  isCompleted: boolean
+  helpSystem?: {
+    totalCycles: number
+    maxCycles: number
+    currentCycleUsed: {
+      refine: boolean
+      example: boolean
+      custom: boolean
+    }
+    isInCycle: boolean
+  }
+  // 🔥 新增快照字段
+  finalAnswerSnapshot?: string
+  finalAnswerConfirmed?: boolean
+}
+
 // 🔥 从存储中恢复或初始化对话数据
 const rawStepData = simpleStorage.getStepData(3) as Step3Data | null
 
@@ -603,6 +635,14 @@ const conversationData = reactive<{
 // 🔥 恢复帮助系统状态
 if (rawStepData?.helpSystem) {
   Object.assign(helpSystem, rawStepData.helpSystem)
+}
+
+// 🔥 新增：恢复快照数据
+if (rawStepData?.finalAnswerSnapshot) {
+  finalAnswerSnapshot.value = rawStepData.finalAnswerSnapshot
+}
+if (rawStepData?.finalAnswerConfirmed !== undefined) {
+  finalAnswerConfirmed.value = rawStepData.finalAnswerConfirmed
 }
 
 // 状态管理
@@ -689,6 +729,10 @@ async function submitAnswer() {
 
   addMessage('user', userAnswer.value, currentStage.value)
 
+  // 🔥 新增：保存本轮输入作为快照
+  const currentAnswer = userAnswer.value
+  finalAnswerSnapshot.value = currentAnswer
+
   // 🔥 重置帮助周期
   if (helpSystem.isInCycle) {
     console.log(`🔄 Step3 - 重置帮助周期，已使用周期数: ${helpSystem.totalCycles}`)
@@ -713,7 +757,6 @@ async function submitAnswer() {
     },
   )
 
-  const currentAnswer = userAnswer.value
   userAnswer.value = ''
   isGenerating.value = true
   loadingStep.value = 1
@@ -1027,6 +1070,8 @@ const handleInput = () => {
 }
 
 const handleNextStep = () => {
+  // 🔥 初始化可编辑内容为当前快照
+  editableFinalAnswer.value = finalAnswerSnapshot.value
   showConfirmDialog.value = true
 }
 
@@ -1036,7 +1081,18 @@ const closeConfirmDialog = () => {
 
 // 🔥 确认进入下一步
 const confirmNextStep = async () => {
-  // 🔥 埋点 - 点击继续下一步
+  // 🔥 使用编辑后的内容作为最终快照
+  finalAnswerSnapshot.value = editableFinalAnswer.value.trim()
+  finalAnswerConfirmed.value = true
+  showConfirmDialog.value = false
+
+  // 🔥 1. 保存到 localStorage（Step6 会读取）
+  simpleStorage.setItem('step3_final_answer', {
+    content: finalAnswerSnapshot.value,
+    confirmedAt: new Date().toISOString(),
+  })
+
+  // 🔥 2. 埋点 - 点击继续下一步
   await trackStep3Event(
     'step3_next_step_click',
     conversationData.sessionId,
@@ -1044,10 +1100,15 @@ const confirmNextStep = async () => {
     conversationData.conversationCount,
     {
       answerSubmitted: answerSubmitted.value,
+      finalAnswerLength: finalAnswerSnapshot.value.length,
+      wasEdited: editableFinalAnswer.value !== finalAnswerSnapshot.value,
     },
   )
 
-  showConfirmDialog.value = false
+  // 🔥 3. 保存到 storage（包含快照）
+  saveToStorage()
+
+  // 🔥 4. 跳转下一步
   goToNextStep()
 }
 
@@ -1253,6 +1314,9 @@ const saveToStorage = () => {
       currentCycleUsed: { ...helpSystem.currentCycleUsed },
       isInCycle: helpSystem.isInCycle,
     },
+    // 🔥 新增：保存快照
+    finalAnswerSnapshot: finalAnswerSnapshot.value,
+    finalAnswerConfirmed: finalAnswerConfirmed.value,
   }
 
   simpleStorage.saveStepData(3, stepData)
@@ -1260,11 +1324,9 @@ const saveToStorage = () => {
   console.log('💾 Step3 - 数据已保存到存储:', {
     conversationCount: stepData.conversationCount,
     messagesCount: stepData.messages.length,
+    hasSnapshot: !!finalAnswerSnapshot.value,
+    snapshotLength: finalAnswerSnapshot.value.length,
   })
-}
-
-const getSessionId = () => {
-  return simpleStorage.getSessionId()
 }
 
 // 生命周期
@@ -2663,5 +2725,81 @@ onMounted(async () => {
   .warning-text {
     font-size: 0.8rem;
   }
+}
+
+/* 🔥 快照预览区域 */
+.answer-preview {
+  background: linear-gradient(135deg, #f0f9ff 0%, #e0f2fe 100%);
+  border: 2px solid #0ea5e9;
+  border-radius: 12px;
+  padding: 1rem;
+  margin: 1.5rem 0;
+  animation: slideIn 0.3s ease-out;
+}
+
+.preview-header {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  margin-bottom: 0.75rem;
+  padding-bottom: 0.5rem;
+  border-bottom: 1px solid rgba(14, 165, 233, 0.2);
+}
+
+.preview-icon {
+  font-size: 1.2rem;
+}
+
+.preview-title {
+  font-weight: 600;
+  color: #0369a1;
+  font-size: 0.95rem;
+}
+
+.preview-body {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+
+.preview-textarea {
+  width: 100%;
+  border: 2px solid #0ea5e9;
+  border-radius: 8px;
+  padding: 0.75rem;
+  font-size: 0.9rem;
+  line-height: 1.6;
+  color: #334155;
+  background: white;
+  resize: vertical;
+  min-height: 200px;
+  font-family: inherit;
+  transition: all 0.3s ease;
+}
+
+.preview-textarea:focus {
+  outline: none;
+  border-color: #0284c7;
+  box-shadow: 0 0 0 3px rgba(14, 165, 233, 0.1);
+}
+
+.preview-hint {
+  color: #64748b;
+  font-size: 0.85rem;
+  margin: 0;
+  font-style: italic;
+}
+
+.char-count {
+  text-align: right;
+  font-size: 0.8rem;
+  color: #94a3b8;
+}
+
+/* 确保确认按钮禁用状态 */
+.confirm-button:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+  transform: none;
 }
 </style>

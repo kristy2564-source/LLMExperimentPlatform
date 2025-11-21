@@ -438,31 +438,35 @@ const submitFinalSolution = async () => {
     return
   }
 
-  if (confirm('确定要提交最终方案吗？提交后将无法修改。')) {
-    finalSubmitted.value = true
-
-    try {
-      await submitToServer(studentFinalPlan.value)
-      alert('✅ 最终方案已成功提交！')
-    } catch (error) {
-      console.error('提交失败:', error)
-      alert('提交失败，但已保存在本地')
-    }
+  // 用户点击取消时，直接返回，不执行后续代码
+  if (!confirm('确定要提交最终方案吗？提交后将无法修改。')) {
+    return // 🔥 点击取消时停止执行
   }
 
-  // 提交成功后
-  alert('✅ 最终方案已成功提交！\n\n即将进入下一步：自我评估与反思')
+  // 以下代码只有在点击"确定"时才会执行
+  finalSubmitted.value = true
 
-  setTimeout(() => {
-    router.push({
-      path: '/experiment/step7',
-      query: {
-        from: 'step6',
-        submitted: 'true',
-        timestamp: Date.now().toString(),
-      },
-    })
-  }, 800)
+  try {
+    await submitToServer(studentFinalPlan.value)
+
+    // 🔥 提交成功后的提示和跳转
+    alert('✅ 最终方案已成功提交！\n\n即将进入下一步：自我评估与反思')
+
+    setTimeout(() => {
+      router.push({
+        path: '/experiment/step7',
+        query: {
+          from: 'step6',
+          submitted: 'true',
+          timestamp: Date.now().toString(),
+        },
+      })
+    }, 800)
+  } catch (error) {
+    console.error('提交失败:', error)
+    alert('提交失败，但已保存在本地')
+    finalSubmitted.value = false // 🔥 提交失败时恢复状态
+  }
 }
 
 const submitToServer = async (content: string) => {

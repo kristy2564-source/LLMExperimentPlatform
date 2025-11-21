@@ -87,10 +87,12 @@
                   </div>
                 </div>
 
-                <!-- 🔥 修改：常见问题与思考引导 -->
+                <!-- 🔥 修改：常见问题与思考引导 - 紧凑版 -->
                 <div class="prompt-examples">
                   <h5>⚠️ 常见问题与改进方向</h5>
-                  <div class="examples-list">
+
+                  <!-- 🔥 两个问题示例横向排列 -->
+                  <div class="examples-grid">
                     <!-- 错误示例1 -->
                     <div class="example-item bad-example">
                       <div class="scenario-tag bad-tag">❌ 问题示例 1</div>
@@ -119,30 +121,30 @@
                         </ul>
                       </div>
                     </div>
+                  </div>
 
-                    <!-- 🔥 新增：思考引导 -->
-                    <div class="thinking-guide">
-                      <div class="guide-header">
-                        <span class="guide-icon">💭</span>
-                        <span class="guide-title">设计提示词时，思考这些问题：</span>
+                  <!-- 🔥 思考引导 - 横向4列 -->
+                  <div class="thinking-guide">
+                    <div class="guide-header">
+                      <span class="guide-icon">💭</span>
+                      <span class="guide-title">设计提示词时，思考这些问题：</span>
+                    </div>
+                    <div class="guide-questions">
+                      <div class="question-item">
+                        <span class="q-icon">🎪</span>
+                        <span>AI需要扮演什么角色？（专家、顾问、分析师...）</span>
                       </div>
-                      <div class="guide-questions">
-                        <div class="question-item">
-                          <span class="q-icon">🎪</span>
-                          <span>AI需要扮演什么角色？（专家、顾问、分析师...）</span>
-                        </div>
-                        <div class="question-item">
-                          <span class="q-icon">📊</span>
-                          <span>需要提供哪些关键数据？（人数、温度、空间...）</span>
-                        </div>
-                        <div class="question-item">
-                          <span class="q-icon">🎯</span>
-                          <span>期望得到什么样的答案？（方案数量、详细程度...）</span>
-                        </div>
-                        <div class="question-item">
-                          <span class="q-icon">⚖️</span>
-                          <span>有哪些约束条件？（成本、时间、技术难度...）</span>
-                        </div>
+                      <div class="question-item">
+                        <span class="q-icon">📊</span>
+                        <span>需要提供哪些关键数据？（人数、温度、空间...）</span>
+                      </div>
+                      <div class="question-item">
+                        <span class="q-icon">🎯</span>
+                        <span>期望得到什么样的答案？（方案数量、详细程度...）</span>
+                      </div>
+                      <div class="question-item">
+                        <span class="q-icon">⚖️</span>
+                        <span>有哪些约束条件？（成本、时间、技术难度...）</span>
                       </div>
                     </div>
                   </div>
@@ -267,7 +269,7 @@
               @click="handleNextStep"
               v-if="answerSubmitted || isConversationLimitReached"
             >
-              继续下一步 →
+              下一步
             </button>
           </div>
         </div>
@@ -428,6 +430,13 @@
             <div class="preview-header">
               <span class="preview-icon">📝</span>
               <span class="preview-title">本步骤的最终内容（可编辑）</span>
+            </div>
+            <!-- 🔥 新增：任务标题（与 Step3 风格统一） -->
+            <div class="task-title">
+              <span class="task-icon">🔍</span>
+              <span class="task-text">
+                任务：为AI系统设计一条清晰的工作提示词，用于生成教室智能通风节能方案
+              </span>
             </div>
             <div class="preview-body">
               <textarea
@@ -1598,11 +1607,19 @@ onMounted(async () => {
   font-weight: 600;
 }
 
+/* 🔥 chart-container 上下布局 */
 .chart-container {
-  display: grid;
-  grid-template-columns: 1fr 1fr;
-  gap: 2rem;
-  align-items: flex-start;
+  display: flex;
+  flex-direction: column;
+  gap: 1.5rem;
+}
+
+/* ==================== 提示词要素分析 ==================== */
+.prompt-elements {
+  background: white;
+  border-radius: 12px;
+  padding: 1rem;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
 }
 
 /* 题注样式 */
@@ -1617,14 +1634,6 @@ onMounted(async () => {
   background: rgba(139, 92, 246, 0.1);
   border-radius: 6px;
   border-left: 3px solid #8b5cf6;
-}
-
-/* 提示词要素分析 */
-.prompt-elements {
-  background: white;
-  border-radius: 12px;
-  padding: 1rem;
-  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
 }
 
 .elements-grid {
@@ -1686,7 +1695,7 @@ onMounted(async () => {
   border-left: 2px solid #8b5cf6;
 }
 
-/* 提示词示例 */
+/* ==================== 紧凑版 prompt-examples 样式 ==================== */
 .prompt-examples {
   background: white;
   border-radius: 12px;
@@ -1694,66 +1703,120 @@ onMounted(async () => {
   box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
 }
 
-.examples-list {
-  display: flex;
-  flex-direction: column;
+/* 🔥 核心：两个问题示例横向排列 */
+.examples-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
   gap: 0.75rem;
+  margin-bottom: 0.75rem;
 }
 
+/* 问题示例卡片 - 更紧凑 */
 .example-item {
-  padding: 0.75rem;
+  padding: 0.6rem;
   background: #f8fafc;
   border-radius: 8px;
   border: 1px solid #e2e8f0;
-  transition: all 0.3s ease;
 }
 
-.example-item:hover {
-  box-shadow: 0 2px 8px rgba(139, 92, 246, 0.1);
-  border-color: #c4b5fd;
+.example-item.bad-example {
+  background: linear-gradient(135deg, #fef2f2 0%, #fee2e2 100%);
+  border-color: #fca5a5;
 }
 
 .scenario-tag {
   display: inline-block;
   font-size: 0.7rem;
   font-weight: 600;
-  padding: 0.25rem 0.5rem;
+  padding: 0.2rem 0.5rem;
   border-radius: 4px;
-  margin-bottom: 0.5rem;
+  margin-bottom: 0.4rem;
+}
+
+.scenario-tag.bad-tag {
+  background: #dc2626;
   color: white;
-}
-
-.scenario-tag:nth-of-type(4n + 1) {
-  background: linear-gradient(45deg, #10b981, #059669);
-}
-
-.scenario-tag:nth-of-type(4n + 2) {
-  background: linear-gradient(45deg, #3b82f6, #1d4ed8);
-}
-
-.scenario-tag:nth-of-type(4n + 3) {
-  background: linear-gradient(45deg, #f59e0b, #d97706);
-}
-
-.scenario-tag:nth-of-type(4n + 4) {
-  background: linear-gradient(45deg, #ef4444, #dc2626);
 }
 
 .example-text {
   font-size: 0.8rem;
-  color: #374151;
-  line-height: 1.4;
-  margin-bottom: 0.5rem;
-  padding: 0.5rem;
+  color: #334155;
+  font-style: italic;
+  padding: 0.4rem;
   background: white;
   border-radius: 4px;
-  border-left: 3px solid #8b5cf6;
+  margin-bottom: 0.4rem;
+  border-left: 2px solid #f87171;
 }
 
-.example-note {
+.example-analysis {
   font-size: 0.7rem;
-  color: #6b7280;
-  font-style: italic;
+  color: #dc2626;
+}
+
+.example-analysis strong {
+  display: block;
+  margin-bottom: 0.25rem;
+}
+
+.example-analysis ul {
+  margin: 0;
+  padding-left: 1rem;
+  line-height: 1.4;
+}
+
+.example-analysis li {
+  margin-bottom: 0.15rem;
+  color: #64748b;
+}
+
+/* 🔥 思考引导 - 更紧凑 */
+.thinking-guide {
+  background: linear-gradient(135deg, #fef3c7 0%, #fde68a 100%);
+  border: 1px solid #f59e0b;
+  border-radius: 8px;
+  padding: 0.6rem;
+}
+
+.guide-header {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  margin-bottom: 0.5rem;
+}
+
+.guide-icon {
+  font-size: 1rem;
+}
+
+.guide-title {
+  font-size: 0.8rem;
+  font-weight: 600;
+  color: #92400e;
+}
+
+/* 🔥 4个问题横向排列 */
+.guide-questions {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 0.5rem;
+}
+
+.question-item {
+  display: flex;
+  align-items: flex-start;
+  gap: 0.3rem;
+  padding: 0.4rem;
+  background: white;
+  border-radius: 6px;
+  font-size: 0.7rem;
+  color: #334155;
+  line-height: 1.3;
+}
+
+.q-icon {
+  font-size: 0.85rem;
+  flex-shrink: 0;
 }
 
 /* ==================== 对话消息样式 ==================== */
@@ -2518,323 +2581,7 @@ onMounted(async () => {
   box-shadow: 0 6px 16px rgba(59, 130, 246, 0.4);
 }
 
-/* ==================== 确认弹窗样式 ==================== */
-.confirm-dialog-overlay {
-  position: fixed;
-  top: 0;
-  left: 0;
-  right: 0;
-  bottom: 0;
-  background: rgba(0, 0, 0, 0.5);
-  backdrop-filter: blur(4px);
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  z-index: 1000;
-  animation: fadeIn 0.3s ease-out;
-}
-
-.confirm-dialog {
-  background: white;
-  border-radius: 20px;
-  padding: 2rem;
-  max-width: 500px;
-  width: 90%;
-  max-height: 80vh;
-  overflow-y: auto;
-  box-shadow: 0 20px 40px rgba(0, 0, 0, 0.2);
-  animation: slideUp 0.3s ease-out;
-}
-
-.dialog-header {
-  display: flex;
-  align-items: center;
-  gap: 1rem;
-  margin-bottom: 1.5rem;
-  padding-bottom: 1rem;
-  border-bottom: 2px solid #e2e8f0;
-}
-
-.dialog-icon {
-  width: 3rem;
-  height: 3rem;
-  border-radius: 50%;
-  background: linear-gradient(45deg, #8b5cf6, #7c3aed);
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  font-size: 1.5rem;
-  flex-shrink: 0;
-}
-
-.dialog-header h3 {
-  color: #1e293b;
-  font-size: 1.3rem;
-  margin: 0;
-  font-weight: 600;
-}
-
-.dialog-content {
-  margin-bottom: 2rem;
-}
-
-.dialog-content p {
-  color: #475569;
-  font-size: 1rem;
-  line-height: 1.6;
-  margin-bottom: 1.5rem;
-}
-
-.completion-summary {
-  background: linear-gradient(135deg, #f8fafc 0%, #f1f5f9 100%);
-  border: 1px solid #e2e8f0;
-  border-radius: 12px;
-  padding: 1.5rem;
-  margin-bottom: 1rem;
-}
-
-.summary-item {
-  display: flex;
-  align-items: center;
-  gap: 0.75rem;
-  margin-bottom: 0.75rem;
-  font-size: 0.95rem;
-  color: #334155;
-}
-
-.summary-item:last-child {
-  margin-bottom: 0;
-}
-
-.summary-icon {
-  font-size: 1.1rem;
-  flex-shrink: 0;
-}
-
-.dialog-warning {
-  display: flex;
-  align-items: center;
-  gap: 0.75rem;
-  background: linear-gradient(135deg, #fef3c7 0%, #fde68a 100%);
-  border: 1px solid #f59e0b;
-  border-radius: 8px;
-  padding: 1rem;
-  font-size: 0.9rem;
-  color: #92400e;
-}
-
-.dialog-actions {
-  display: flex;
-  gap: 1rem;
-  justify-content: flex-end;
-}
-
-.cancel-button,
-.confirm-button {
-  padding: 0.75rem 2rem;
-  border-radius: 25px;
-  font-weight: 600;
-  font-size: 1rem;
-  cursor: pointer;
-  transition: all 0.3s ease;
-  border: none;
-}
-
-.cancel-button {
-  background: #f1f5f9;
-  color: #475569;
-  border: 2px solid #e2e8f0;
-}
-
-.cancel-button:hover {
-  background: #e2e8f0;
-  transform: translateY(-1px);
-}
-
-.confirm-button {
-  background: linear-gradient(45deg, #8b5cf6, #7c3aed);
-  color: white;
-  box-shadow: 0 4px 12px rgba(139, 92, 246, 0.3);
-}
-
-.confirm-button:hover {
-  transform: translateY(-2px);
-  box-shadow: 0 6px 16px rgba(139, 92, 246, 0.4);
-}
-
-/* ==================== 动画 ==================== */
-@keyframes fadeIn {
-  from {
-    opacity: 0;
-  }
-  to {
-    opacity: 1;
-  }
-}
-
-@keyframes slideUp {
-  from {
-    opacity: 0;
-    transform: translateY(20px);
-  }
-  to {
-    opacity: 1;
-    transform: translateY(0);
-  }
-}
-
-@keyframes slideIn {
-  from {
-    opacity: 0;
-    transform: translateY(10px);
-  }
-  to {
-    opacity: 1;
-    transform: translateY(0);
-  }
-}
-
-/* ==================== 响应式设计 ==================== */
-@media (max-width: 768px) {
-  .chart-container {
-    grid-template-columns: 1fr;
-    gap: 1rem;
-  }
-
-  .elements-grid {
-    grid-template-columns: 1fr;
-    gap: 0.5rem;
-  }
-
-  .element-header {
-    padding: 0.5rem;
-  }
-
-  .element-content {
-    padding: 0.5rem;
-  }
-
-  .element-desc {
-    font-size: 0.7rem;
-  }
-
-  .element-example {
-    font-size: 0.65rem;
-    padding: 0.4rem;
-  }
-
-  .message-content {
-    max-width: 85%;
-  }
-
-  .loading-content {
-    max-width: 90%;
-  }
-
-  .input-toolbar {
-    flex-direction: column;
-    align-items: stretch;
-    gap: 1rem;
-  }
-
-  .action-buttons {
-    justify-content: center;
-  }
-
-  .help-dialog {
-    width: 95%;
-    max-height: 90vh;
-  }
-
-  .help-dialog-header {
-    padding: 1.25rem 1.5rem;
-  }
-
-  .help-dialog-content {
-    padding: 1.5rem;
-  }
-
-  .help-option {
-    padding: 1rem;
-  }
-
-  .custom-question-section {
-    padding: 1rem;
-  }
-
-  .custom-question-actions {
-    flex-direction: column;
-  }
-
-  .cancel-custom-button,
-  .submit-custom-button {
-    width: 100%;
-  }
-
-  .confirm-dialog {
-    width: 95%;
-    padding: 1.5rem;
-  }
-
-  .dialog-actions {
-    flex-direction: column;
-    gap: 0.75rem;
-  }
-
-  .cancel-button,
-  .confirm-button {
-    width: 100%;
-  }
-
-  .example-item {
-    padding: 0.5rem;
-  }
-
-  .example-text {
-    font-size: 0.75rem;
-  }
-
-  .example-note {
-    font-size: 0.65rem;
-  }
-
-  .scenario-tag {
-    font-size: 0.65rem;
-    padding: 0.2rem 0.4rem;
-  }
-}
-
-@media (max-width: 480px) {
-  .warning-content {
-    flex-direction: column;
-    text-align: center;
-    gap: 0.75rem;
-  }
-
-  .warning-icon {
-    font-size: 1.3rem;
-  }
-
-  .warning-text {
-    font-size: 0.8rem;
-  }
-
-  .confirm-dialog {
-    padding: 1rem;
-  }
-
-  .dialog-header {
-    flex-direction: column;
-    text-align: center;
-    gap: 0.75rem;
-  }
-
-  .summary-item {
-    font-size: 0.8rem;
-  }
-}
-
-/* 🔥 新增：AI组合响应样式 */
+/* ==================== AI组合响应样式 ==================== */
 .ai-response-combined {
   display: flex;
   flex-direction: column;
@@ -2912,23 +2659,14 @@ onMounted(async () => {
   color: #92400e;
 }
 
-/* 🔥 新增：优秀/需改进示例样式 */
+/* 优秀/需改进示例样式 */
 .good-example {
   background: linear-gradient(135deg, #f0fdf4 0%, #dcfce7 100%);
   border-color: #22c55e;
 }
 
-.bad-example {
-  background: linear-gradient(135deg, #fef2f2 0%, #fee2e2 100%);
-  border-color: #ef4444;
-}
-
 .good-tag {
   background: linear-gradient(45deg, #22c55e, #16a34a);
-}
-
-.bad-tag {
-  background: linear-gradient(45deg, #ef4444, #dc2626);
 }
 
 .good-note {
@@ -2947,29 +2685,74 @@ onMounted(async () => {
   margin-top: 0.5rem;
 }
 
-/* 响应式优化 */
-@media (max-width: 768px) {
-  .ai-response-combined {
-    gap: 1rem;
-  }
-
-  .test-result-section,
-  .feedback-section {
-    padding: 1rem;
-  }
-
-  .section-header {
-    font-size: 0.85rem;
-  }
-
-  .result-content,
-  .feedback-content {
-    font-size: 0.85rem;
-    padding: 0.75rem;
-  }
+/* ==================== 确认弹窗统一样式 ==================== */
+.confirm-dialog-overlay {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background: rgba(0, 0, 0, 0.5);
+  backdrop-filter: blur(4px);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 1000;
+  animation: fadeIn 0.3s ease-out;
 }
 
-/* 🔥 快照预览区域 */
+.confirm-dialog {
+  background: white;
+  border-radius: 20px;
+  padding: 2rem;
+  max-width: 500px;
+  width: 90%;
+  max-height: 80vh;
+  overflow-y: auto;
+  box-shadow: 0 20px 40px rgba(0, 0, 0, 0.2);
+  animation: slideUp 0.3s ease-out;
+}
+
+.dialog-header {
+  display: flex;
+  align-items: center;
+  gap: 1rem;
+  margin-bottom: 1.5rem;
+  padding-bottom: 1rem;
+  border-bottom: 2px solid #e2e8f0;
+}
+
+.dialog-icon {
+  width: 3rem;
+  height: 3rem;
+  border-radius: 50%;
+  background: linear-gradient(45deg, #0ea5e9, #0284c7);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 1.5rem;
+  flex-shrink: 0;
+}
+
+.dialog-header h3 {
+  color: #1e293b;
+  font-size: 1.3rem;
+  margin: 0;
+  font-weight: 600;
+}
+
+.dialog-content {
+  margin-bottom: 2rem;
+}
+
+.dialog-content p {
+  color: #475569;
+  font-size: 1rem;
+  line-height: 1.6;
+  margin-bottom: 1.5rem;
+}
+
+/* 快照预览区域 */
 .answer-preview {
   background: linear-gradient(135deg, #f0f9ff 0%, #e0f2fe 100%);
   border: 2px solid #0ea5e9;
@@ -2998,23 +2781,55 @@ onMounted(async () => {
   font-size: 0.95rem;
 }
 
+/* 任务标题样式 */
+.task-title {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.75rem 1rem;
+  background: white;
+  border: 1px solid #e0f2fe;
+  border-radius: 8px;
+  margin-bottom: 0.75rem;
+}
+
+.task-icon {
+  font-size: 1.1rem;
+  flex-shrink: 0;
+}
+
+.task-text {
+  font-size: 0.9rem;
+  color: #334155;
+  font-weight: 500;
+  line-height: 1.4;
+}
+
 .preview-body {
   display: flex;
   flex-direction: column;
   gap: 0.5rem;
 }
 
-.preview-text {
-  color: #334155;
-  font-size: 0.9rem;
-  line-height: 1.5;
-  background: white;
-  padding: 0.75rem;
+.preview-textarea {
+  width: 100%;
+  border: 2px solid #0ea5e9;
   border-radius: 8px;
-  border-left: 3px solid #0ea5e9;
-  margin: 0;
-  white-space: pre-wrap;
-  word-wrap: break-word;
+  padding: 0.75rem;
+  font-size: 0.9rem;
+  line-height: 1.6;
+  color: #334155;
+  background: white;
+  resize: vertical;
+  min-height: 200px;
+  font-family: inherit;
+  transition: all 0.3s ease;
+}
+
+.preview-textarea:focus {
+  outline: none;
+  border-color: #0284c7;
+  box-shadow: 0 0 0 3px rgba(14, 165, 233, 0.1);
 }
 
 .preview-hint {
@@ -3024,102 +2839,320 @@ onMounted(async () => {
   font-style: italic;
 }
 
-/* 🔥 问题分析区域 */
-.example-analysis {
-  background: #fef2f2;
-  border-left: 3px solid #ef4444;
-  padding: 0.75rem;
-  margin-top: 0.5rem;
-  border-radius: 4px;
-}
-
-.example-analysis strong {
-  color: #991b1b;
-  display: block;
-  margin-bottom: 0.5rem;
-  font-size: 0.85rem;
-}
-
-.example-analysis ul {
-  margin: 0;
-  padding-left: 1.2rem;
-  list-style: none;
-}
-
-.example-analysis li {
-  color: #991b1b;
+.char-count {
+  text-align: right;
   font-size: 0.8rem;
-  line-height: 1.6;
-  margin-bottom: 0.3rem;
-  position: relative;
+  color: #94a3b8;
 }
 
-.example-analysis li::before {
-  content: '•';
-  position: absolute;
-  left: -1rem;
-  color: #ef4444;
-}
-
-/* 🔥 思考引导区域 */
-.thinking-guide {
-  background: linear-gradient(135deg, #fef3c7 0%, #fde68a 100%);
-  border: 2px solid #f59e0b;
+/* 完成摘要 */
+.completion-summary {
+  background: linear-gradient(135deg, #f8fafc 0%, #f1f5f9 100%);
+  border: 1px solid #e2e8f0;
   border-radius: 12px;
-  padding: 1rem;
-  margin-top: 0.75rem;
+  padding: 1.5rem;
+  margin-bottom: 1rem;
 }
 
-.guide-header {
+.summary-item {
   display: flex;
   align-items: center;
-  gap: 0.5rem;
+  gap: 0.75rem;
   margin-bottom: 0.75rem;
-  padding-bottom: 0.5rem;
-  border-bottom: 1px solid rgba(245, 158, 11, 0.3);
+  font-size: 0.95rem;
+  color: #334155;
 }
 
-.guide-icon {
-  font-size: 1.2rem;
+.summary-item:last-child {
+  margin-bottom: 0;
 }
 
-.guide-title {
-  font-weight: 600;
-  color: #92400e;
-  font-size: 0.9rem;
-}
-
-.guide-questions {
-  display: flex;
-  flex-direction: column;
-  gap: 0.5rem;
-}
-
-.question-item {
-  display: flex;
-  align-items: center;
-  gap: 0.5rem;
-  background: white;
-  padding: 0.5rem 0.75rem;
-  border-radius: 6px;
-  border-left: 3px solid #f59e0b;
-  font-size: 0.8rem;
-  color: #78350f;
-  line-height: 1.4;
-}
-
-.q-icon {
-  font-size: 1rem;
+.summary-icon {
+  font-size: 1.1rem;
   flex-shrink: 0;
 }
 
-/* 调整坏示例的样式 */
-.bad-example {
-  background: linear-gradient(135deg, #fef2f2 0%, #fee2e2 100%);
-  border-color: #ef4444;
+/* 警告提示 */
+.dialog-warning {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  background: linear-gradient(135deg, #fef3c7 0%, #fde68a 100%);
+  border: 1px solid #f59e0b;
+  border-radius: 8px;
+  padding: 1rem;
+  font-size: 0.9rem;
+  color: #92400e;
 }
 
-.bad-tag {
-  background: linear-gradient(45deg, #ef4444, #dc2626);
+/* 按钮区域 */
+.dialog-actions {
+  display: flex;
+  gap: 1rem;
+  justify-content: flex-end;
+}
+
+.cancel-button,
+.confirm-button {
+  padding: 0.75rem 2rem;
+  border-radius: 25px;
+  font-weight: 600;
+  font-size: 1rem;
+  cursor: pointer;
+  transition: all 0.3s ease;
+  border: none;
+}
+
+.cancel-button {
+  background: #f1f5f9;
+  color: #475569;
+  border: 2px solid #e2e8f0;
+}
+
+.cancel-button:hover {
+  background: #e2e8f0;
+  transform: translateY(-1px);
+}
+
+.confirm-button {
+  background: linear-gradient(45deg, #10b981, #059669);
+  color: white;
+  box-shadow: 0 4px 12px rgba(16, 185, 129, 0.3);
+}
+
+.confirm-button:hover:not(:disabled) {
+  transform: translateY(-2px);
+  box-shadow: 0 6px 16px rgba(16, 185, 129, 0.4);
+}
+
+.confirm-button:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+  transform: none;
+}
+
+/* ==================== 动画 ==================== */
+@keyframes fadeIn {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+@keyframes slideUp {
+  from {
+    opacity: 0;
+    transform: translateY(20px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@keyframes slideIn {
+  from {
+    opacity: 0;
+    transform: translateY(10px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+/* ==================== 响应式设计 ==================== */
+@media (max-width: 1024px) {
+  .guide-questions {
+    grid-template-columns: repeat(2, 1fr);
+  }
+}
+
+@media (max-width: 768px) {
+  .chart-container {
+    gap: 1rem;
+  }
+
+  .elements-grid {
+    grid-template-columns: 1fr;
+    gap: 0.5rem;
+  }
+
+  .examples-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .guide-questions {
+    grid-template-columns: 1fr;
+  }
+
+  .element-header {
+    padding: 0.5rem;
+  }
+
+  .element-content {
+    padding: 0.5rem;
+  }
+
+  .element-desc {
+    font-size: 0.7rem;
+  }
+
+  .element-example {
+    font-size: 0.65rem;
+    padding: 0.4rem;
+  }
+
+  .message-content {
+    max-width: 85%;
+  }
+
+  .loading-content {
+    max-width: 90%;
+  }
+
+  .input-toolbar {
+    flex-direction: column;
+    align-items: stretch;
+    gap: 1rem;
+  }
+
+  .action-buttons {
+    justify-content: center;
+  }
+
+  .help-dialog {
+    width: 95%;
+    max-height: 90vh;
+  }
+
+  .help-dialog-header {
+    padding: 1.25rem 1.5rem;
+  }
+
+  .help-dialog-content {
+    padding: 1.5rem;
+  }
+
+  .help-option {
+    padding: 1rem;
+  }
+
+  .custom-question-section {
+    padding: 1rem;
+  }
+
+  .custom-question-actions {
+    flex-direction: column;
+  }
+
+  .cancel-custom-button,
+  .submit-custom-button {
+    width: 100%;
+  }
+
+  .confirm-dialog {
+    width: 95%;
+    padding: 1.5rem;
+    max-height: 85vh;
+  }
+
+  .dialog-header h3 {
+    font-size: 1.1rem;
+  }
+
+  .dialog-icon {
+    width: 2.5rem;
+    height: 2.5rem;
+    font-size: 1.3rem;
+  }
+
+  .dialog-content p {
+    font-size: 0.9rem;
+  }
+
+  .completion-summary {
+    padding: 1rem;
+  }
+
+  .summary-item {
+    font-size: 0.85rem;
+  }
+
+  .dialog-warning {
+    font-size: 0.8rem;
+    padding: 0.75rem;
+  }
+
+  .dialog-actions {
+    flex-direction: column;
+    gap: 0.75rem;
+  }
+
+  .cancel-button,
+  .confirm-button {
+    width: 100%;
+    padding: 0.75rem;
+    font-size: 0.9rem;
+  }
+
+  .task-title {
+    padding: 0.5rem 0.75rem;
+  }
+
+  .task-text {
+    font-size: 0.85rem;
+  }
+
+  .ai-response-combined {
+    gap: 1rem;
+  }
+
+  .test-result-section,
+  .feedback-section {
+    padding: 1rem;
+  }
+
+  .section-header {
+    font-size: 0.85rem;
+  }
+
+  .result-content,
+  .feedback-content {
+    font-size: 0.85rem;
+    padding: 0.75rem;
+  }
+}
+
+@media (max-width: 480px) {
+  .warning-content {
+    flex-direction: column;
+    text-align: center;
+    gap: 0.75rem;
+  }
+
+  .warning-icon {
+    font-size: 1.3rem;
+  }
+
+  .warning-text {
+    font-size: 0.8rem;
+  }
+
+  .confirm-dialog {
+    padding: 1rem;
+  }
+
+  .dialog-header {
+    flex-direction: column;
+    text-align: center;
+    gap: 0.75rem;
+  }
+
+  .summary-item {
+    font-size: 0.8rem;
+  }
 }
 </style>

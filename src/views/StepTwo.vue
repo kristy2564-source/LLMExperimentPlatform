@@ -294,7 +294,7 @@
               @click="handleNextStep"
               v-if="stage2Completed || allStagesCompleted || isConversationLimitReached"
             >
-              继续下一步 →
+              下一步
             </button>
           </div>
         </div>
@@ -447,7 +447,7 @@
       </div>
     </div>
 
-    <!-- 确认进入下一步的弹窗 -->
+    <!-- 🔥 修改：确认弹窗 - 统一风格版本 -->
     <div v-if="showConfirmDialog" class="confirm-dialog-overlay" @click="closeConfirmDialog">
       <div class="confirm-dialog" @click.stop>
         <div class="dialog-header">
@@ -455,7 +455,7 @@
           <h3>确认进入下一步</h3>
         </div>
 
-        <!-- 🔥 新增：保存成功提示条（独立显示） -->
+        <!-- 🔥 保存成功提示条（独立显示） -->
         <transition name="fade">
           <div v-if="tempSaveStatus" class="save-success-banner">
             <span class="save-icon">✅</span>
@@ -467,11 +467,17 @@
         <div class="dialog-content">
           <p>您即将完成问题分析阶段，进入下一个学习环节。请确认或修改您的最终内容。</p>
 
-          <!-- 🔥 可编辑的快照区域 -->
+          <!-- 可编辑的快照区域 -->
           <div v-if="editableFinalAnswer" class="answer-preview">
             <div class="preview-header">
               <span class="preview-icon">📝</span>
               <span class="preview-title">本步骤的最终内容（可编辑）</span>
+            </div>
+
+            <!-- 🔥 新增：任务标题 -->
+            <div class="task-title">
+              <span class="task-icon">🔍</span>
+              <span class="task-text">任务：识别影响教室通风的关键因素，并设计控制策略</span>
             </div>
 
             <div class="preview-body">
@@ -482,10 +488,7 @@
                 placeholder="请输入或修改你的最终内容..."
               ></textarea>
 
-              <p class="preview-hint">
-                💡 这包含了Stage1（因素识别）的所有回答和Stage2（控制设计）的最终方案。
-                您可以编辑后临时保存，或直接确认进入下一步。
-              </p>
+              <p class="preview-hint">💡 这是您最后一次修改机会，请仔细检查后点击"确定继续"。</p>
 
               <div class="char-count">字数：{{ editableFinalAnswer.length }} 字符</div>
             </div>
@@ -505,6 +508,10 @@
               <span class="summary-icon">✅</span>
               <span>已完成控制设计阶段</span>
             </div>
+            <div class="summary-item" v-if="helpSystem.totalCycles > 0">
+              <span class="summary-icon">💡</span>
+              <span>使用了 {{ helpSystem.totalCycles }} 次智能帮助</span>
+            </div>
           </div>
 
           <div class="dialog-warning">
@@ -513,12 +520,12 @@
           </div>
         </div>
 
-        <!-- 🔥 修改：弹窗按钮区域 -->
+        <!-- 弹窗按钮区域 -->
         <div class="dialog-actions">
           <!-- 返回对话按钮 -->
           <button class="cancel-button" @click="closeConfirmDialog">返回对话</button>
 
-          <!-- 🔥 临时保存按钮 - 动态文字和禁用状态 -->
+          <!-- 临时保存按钮 -->
           <button
             class="temp-save-button"
             @click="handleTempSaveInDialog"
@@ -529,7 +536,7 @@
             <span>{{ isSaved ? '已保存' : '临时保存' }}</span>
           </button>
 
-          <!-- 确定继续按钮 -->
+          <!-- 确认按钮 -->
           <button
             class="confirm-button"
             @click="confirmNextStep"
@@ -775,9 +782,8 @@ const allStagesCompleted = computed(() => {
 
 // ==================== 🔥 快照生成函数 ====================
 
-// 生成Stage1的快照 - 只包含学生在因素识别阶段的所有回答（过滤掉求助消息）
+// ===== 1. generateStage1Snapshot =====
 const generateStage1Snapshot = (): string => {
-  // 🔥 过滤掉帮助请求消息
   const helpRequestPatterns = [
     /^💬\s*帮我完善/,
     /^💡\s*能给我看看例子/,
@@ -789,28 +795,25 @@ const generateStage1Snapshot = (): string => {
 
   const stage1UserMessages = conversationData.messages.filter((m) => {
     if (m.stage !== 1 || m.type !== 'user') return false
-
-    // 🔥 检查是否是帮助请求消息
     const isHelpRequest = helpRequestPatterns.some((pattern) => pattern.test(m.content))
     return !isHelpRequest
   })
 
   if (stage1UserMessages.length === 0) {
-    return '### 阶段一：因素识别\n\n（尚未完成）'
+    return '【阶段一：因素识别】\n（尚未完成）'
   }
 
-  let content = '### 阶段一：因素识别\n\n'
+  let content = '【阶段一：因素识别】\n\n'
 
   stage1UserMessages.forEach((msg, index) => {
-    content += `**回答 ${index + 1}：**\n${msg.content}\n\n`
+    content += `回答${index + 1}：\n${msg.content}\n\n`
   })
 
   return content.trim()
 }
 
-//生成Stage2的快照 - 只包含学生最后一次有效回复（排除求助信息）
+// ===== 2. generateStage2Snapshot =====
 const generateStage2Snapshot = (): string => {
-  // 🔥 过滤掉帮助请求消息
   const helpRequestPatterns = [
     /^💬\s*帮我完善/,
     /^💡\s*能给我看看例子/,
@@ -822,43 +825,37 @@ const generateStage2Snapshot = (): string => {
 
   const stage2UserMessages = conversationData.messages.filter((m) => {
     if (m.stage !== 2 || m.type !== 'user') return false
-
-    // 🔥 检查是否是帮助请求消息
     const isHelpRequest = helpRequestPatterns.some((pattern) => pattern.test(m.content))
     return !isHelpRequest
   })
 
   if (stage2UserMessages.length === 0) {
-    return '### 阶段二：控制设计\n\n（尚未完成）'
+    return '【阶段二：控制设计】\n（尚未完成）'
   }
 
-  // 找到最后一条有效的学生消息（内容长度>20）
   const lastValidMessage = [...stage2UserMessages].reverse().find((msg) => {
     return msg.content.trim().length > 20
   })
 
   if (lastValidMessage) {
-    return `### 阶段二：控制设计\n\n**我的最终方案：**\n${lastValidMessage.content}`
+    return `【阶段二：控制设计】\n\n我的最终方案：\n${lastValidMessage.content}`
   }
 
-  return '### 阶段二：控制设计\n\n（尚未提交有效内容）'
+  return '【阶段二：控制设计】\n（尚未提交有效内容）'
 }
 
-/**
- * 合并生成完整的快照
- */
+// ===== 3. generateCompleteSnapshot =====
 const generateCompleteSnapshot = (): string => {
   stage1Snapshot.value = generateStage1Snapshot()
   stage2Snapshot.value = generateStage2Snapshot()
 
-  return `${stage1Snapshot.value}\n\n---\n\n${stage2Snapshot.value}`
+  return `${stage1Snapshot.value}\n\n════════════════════════════════\n\n${stage2Snapshot.value}`
 }
 
 // ==================== 🔥 临时保存功能 ====================
 
-/**
- * 在弹窗中临时保存（不确认下一步）
- */
+//在弹窗中临时保存（不确认下一步）
+
 const handleTempSaveInDialog = async () => {
   simpleStorage.setItem('step2_temp_snapshot', {
     content: editableFinalAnswer.value,
@@ -2089,156 +2086,6 @@ watch(currentStage, async (newStage, oldStage) => {
   }
 }
 
-/* 确认弹窗样式 */
-.confirm-dialog-overlay {
-  position: fixed;
-  top: 0;
-  left: 0;
-  right: 0;
-  bottom: 0;
-  background: rgba(0, 0, 0, 0.5);
-  backdrop-filter: blur(4px);
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  z-index: 1000;
-  animation: fadeIn 0.3s ease-out;
-}
-
-.confirm-dialog {
-  background: white;
-  border-radius: 20px;
-  padding: 2rem;
-  max-width: 500px;
-  width: 90%;
-  max-height: 80vh;
-  overflow-y: auto;
-  box-shadow: 0 20px 40px rgba(0, 0, 0, 0.2);
-  animation: slideUp 0.3s ease-out;
-}
-
-.dialog-header {
-  display: flex;
-  align-items: center;
-  gap: 1rem;
-  margin-bottom: 1.5rem;
-  padding-bottom: 1rem;
-  border-bottom: 2px solid #e2e8f0;
-}
-
-.dialog-icon {
-  width: 3rem;
-  height: 3rem;
-  border-radius: 50%;
-  background: linear-gradient(45deg, #3b82f6, #1d4ed8);
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  font-size: 1.5rem;
-  flex-shrink: 0;
-}
-
-.dialog-header h3 {
-  color: #1e293b;
-  font-size: 1.3rem;
-  margin: 0;
-  font-weight: 600;
-}
-
-.dialog-content {
-  margin-bottom: 2rem;
-}
-
-.dialog-content p {
-  color: #475569;
-  font-size: 1rem;
-  line-height: 1.6;
-  margin-bottom: 1.5rem;
-}
-
-.completion-summary {
-  background: linear-gradient(135deg, #f8fafc 0%, #f1f5f9 100%);
-  border: 1px solid #e2e8f0;
-  border-radius: 12px;
-  padding: 1.5rem;
-  margin-bottom: 1rem;
-}
-
-.summary-item {
-  display: flex;
-  align-items: center;
-  gap: 0.75rem;
-  margin-bottom: 0.75rem;
-  font-size: 0.95rem;
-  color: #334155;
-}
-
-.summary-item:last-child {
-  margin-bottom: 0;
-}
-
-.summary-icon {
-  font-size: 1.1rem;
-  flex-shrink: 0;
-}
-
-.dialog-warning {
-  display: flex;
-  align-items: center;
-  gap: 0.75rem;
-  background: linear-gradient(135deg, #fef3c7 0%, #fde68a 100%);
-  border: 1px solid #f59e0b;
-  border-radius: 8px;
-  padding: 1rem;
-  font-size: 0.9rem;
-  color: #92400e;
-}
-
-.warning-icon {
-  font-size: 1.1rem;
-  flex-shrink: 0;
-}
-
-/* 🔥 统一按钮样式 - 移除重复定义 */
-.dialog-actions {
-  display: flex;
-  gap: 1rem;
-  padding: 1.5rem 2rem 2rem;
-  justify-content: center; /* 居中 */
-}
-
-/* 🔥 修复：返回按钮 - 浅灰色背景 */
-.cancel-button {
-  background: #f1f5f9; /* 🔥 改为浅灰色 */
-  color: #475569; /* 🔥 加深文字颜色 */
-  border: 2px solid #e2e8f0;
-}
-
-.confirm-button:hover {
-  transform: translateY(-2px);
-  box-shadow: 0 6px 16px rgba(16, 185, 129, 0.4);
-}
-
-@keyframes fadeIn {
-  from {
-    opacity: 0;
-  }
-  to {
-    opacity: 1;
-  }
-}
-
-@keyframes slideUp {
-  from {
-    opacity: 0;
-    transform: translateY(20px);
-  }
-  to {
-    opacity: 1;
-    transform: translateY(0);
-  }
-}
-
 /* 对话消息区域 */
 .chat-messages {
   flex-shrink: 0;
@@ -2827,17 +2674,6 @@ watch(currentStage, async (newStage, oldStage) => {
 .step.active {
   color: #0369a1;
   font-weight: 600;
-}
-
-@keyframes slideIn {
-  from {
-    opacity: 0;
-    transform: translateY(10px);
-  }
-  to {
-    opacity: 1;
-    transform: translateY(0);
-  }
 }
 
 /* 阶段过渡动画 */
@@ -3523,29 +3359,99 @@ watch(currentStage, async (newStage, oldStage) => {
   font-size: 1.1rem;
 }
 
-/* 可编辑快照文本框 */
-.preview-textarea {
-  width: 100%;
-  border: 2px solid #0ea5e9;
-  border-radius: 8px;
-  padding: 0.75rem;
-  font-size: 0.9rem;
-  line-height: 1.6;
-  color: #334155;
+.temp-save-button .save-icon {
+  font-size: 1.1rem;
+}
+
+/* 移动端适配 */
+@media (max-width: 768px) {
+  .dialog-actions {
+    flex-direction: column;
+    gap: 0.75rem;
+    align-items: stretch; /* 🔥 移动端按钮拉伸 */
+  }
+
+  .cancel-button,
+  .temp-save-button,
+  .confirm-button {
+    width: 100%; /* 🔥 移动端按钮全宽 */
+  }
+
+  .save-success-banner {
+    margin: 0 1.5rem 1rem 1.5rem;
+    font-size: 0.85rem;
+  }
+}
+
+/* ==================== 确认弹窗统一样式 ==================== */
+.confirm-dialog-overlay {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background: rgba(0, 0, 0, 0.5);
+  backdrop-filter: blur(4px);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 1000;
+  animation: fadeIn 0.3s ease-out;
+}
+
+.confirm-dialog {
   background: white;
-  resize: vertical;
-  min-height: 300px; /* Step2内容较多，需要更高 */
-  font-family: inherit;
-  transition: all 0.3s ease;
+  border-radius: 20px;
+  padding: 2rem;
+  max-width: 500px;
+  width: 90%;
+  max-height: 80vh;
+  overflow-y: auto;
+  box-shadow: 0 20px 40px rgba(0, 0, 0, 0.2);
+  animation: slideUp 0.3s ease-out;
 }
 
-.preview-textarea:focus {
-  outline: none;
-  border-color: #0284c7;
-  box-shadow: 0 0 0 3px rgba(14, 165, 233, 0.1);
+.dialog-header {
+  display: flex;
+  align-items: center;
+  gap: 1rem;
+  margin-bottom: 1.5rem;
+  padding-bottom: 1rem;
+  border-bottom: 2px solid #e2e8f0;
 }
 
-/* 🔥 快照预览区域 */
+/* 🔥 统一为蓝色主题 */
+.dialog-icon {
+  width: 3rem;
+  height: 3rem;
+  border-radius: 50%;
+  background: linear-gradient(45deg, #0ea5e9, #0284c7);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 1.5rem;
+  flex-shrink: 0;
+}
+
+.dialog-header h3 {
+  color: #1e293b;
+  font-size: 1.3rem;
+  margin: 0;
+  font-weight: 600;
+}
+
+.dialog-content {
+  margin-bottom: 2rem;
+}
+
+.dialog-content p {
+  color: #475569;
+  font-size: 1rem;
+  line-height: 1.6;
+  margin-bottom: 1.5rem;
+}
+
+/* 快照预览区域 */
 .answer-preview {
   background: linear-gradient(135deg, #f0f9ff 0%, #e0f2fe 100%);
   border: 2px solid #0ea5e9;
@@ -3574,23 +3480,55 @@ watch(currentStage, async (newStage, oldStage) => {
   font-size: 0.95rem;
 }
 
+/* 🔥 新增：任务标题样式 */
+.task-title {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.75rem 1rem;
+  background: white;
+  border: 1px solid #e0f2fe;
+  border-radius: 8px;
+  margin-bottom: 0.75rem;
+}
+
+.task-icon {
+  font-size: 1.1rem;
+  flex-shrink: 0;
+}
+
+.task-text {
+  font-size: 0.9rem;
+  color: #334155;
+  font-weight: 500;
+  line-height: 1.4;
+}
+
 .preview-body {
   display: flex;
   flex-direction: column;
   gap: 0.5rem;
 }
 
-.preview-text {
-  color: #334155;
-  font-size: 0.9rem;
-  line-height: 1.5;
-  background: white;
-  padding: 0.75rem;
+.preview-textarea {
+  width: 100%;
+  border: 2px solid #0ea5e9;
   border-radius: 8px;
-  border-left: 3px solid #0ea5e9;
-  margin: 0;
-  white-space: pre-wrap;
-  word-wrap: break-word;
+  padding: 0.75rem;
+  font-size: 0.9rem;
+  line-height: 1.6;
+  color: #334155;
+  background: white;
+  resize: vertical;
+  min-height: 300px; /* Step2内容较多 */
+  font-family: inherit;
+  transition: all 0.3s ease;
+}
+
+.preview-textarea:focus {
+  outline: none;
+  border-color: #0284c7;
+  box-shadow: 0 0 0 3px rgba(14, 165, 233, 0.1);
 }
 
 .preview-hint {
@@ -3600,34 +3538,156 @@ watch(currentStage, async (newStage, oldStage) => {
   font-style: italic;
 }
 
-/* 🔥 保存成功提示条 */
+.char-count {
+  text-align: right;
+  font-size: 0.8rem;
+  color: #94a3b8;
+}
+
+/* 完成摘要 */
+.completion-summary {
+  background: linear-gradient(135deg, #f8fafc 0%, #f1f5f9 100%);
+  border: 1px solid #e2e8f0;
+  border-radius: 12px;
+  padding: 1.5rem;
+  margin-bottom: 1rem;
+}
+
+.summary-item {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  margin-bottom: 0.75rem;
+  font-size: 0.95rem;
+  color: #334155;
+}
+
+.summary-item:last-child {
+  margin-bottom: 0;
+}
+
+.summary-icon {
+  font-size: 1.1rem;
+  flex-shrink: 0;
+}
+
+/* 警告提示 */
+.dialog-warning {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  background: linear-gradient(135deg, #fef3c7 0%, #fde68a 100%);
+  border: 1px solid #f59e0b;
+  border-radius: 8px;
+  padding: 1rem;
+  font-size: 0.9rem;
+  color: #92400e;
+}
+
+.warning-icon {
+  font-size: 1.1rem;
+  flex-shrink: 0;
+}
+
+/* 按钮区域 - Step2特殊：有3个按钮 */
+.dialog-actions {
+  display: flex;
+  gap: 1rem;
+  justify-content: flex-end;
+  flex-wrap: wrap;
+}
+
+.cancel-button,
+.confirm-button,
+.temp-save-button {
+  padding: 0.75rem 1.5rem;
+  border-radius: 25px;
+  font-weight: 600;
+  font-size: 0.95rem;
+  cursor: pointer;
+  transition: all 0.3s ease;
+  border: none;
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.cancel-button {
+  background: #f1f5f9;
+  color: #475569;
+  border: 2px solid #e2e8f0;
+}
+
+.cancel-button:hover {
+  background: #e2e8f0;
+  transform: translateY(-1px);
+}
+
+.temp-save-button {
+  background: linear-gradient(45deg, #f59e0b, #f97316);
+  color: white;
+  box-shadow: 0 4px 12px rgba(245, 158, 11, 0.3);
+}
+
+.temp-save-button:hover:not(:disabled) {
+  transform: translateY(-2px);
+  box-shadow: 0 6px 16px rgba(245, 158, 11, 0.4);
+}
+
+.temp-save-button:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+  transform: none;
+}
+
+.temp-save-button.saved {
+  background: linear-gradient(45deg, #22c55e, #16a34a);
+  box-shadow: 0 4px 12px rgba(34, 197, 94, 0.3);
+}
+
+.confirm-button {
+  background: linear-gradient(45deg, #10b981, #059669);
+  color: white;
+  box-shadow: 0 4px 12px rgba(16, 185, 129, 0.3);
+}
+
+.confirm-button:hover:not(:disabled) {
+  transform: translateY(-2px);
+  box-shadow: 0 6px 16px rgba(16, 185, 129, 0.4);
+}
+
+.confirm-button:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+  transform: none;
+}
+
+/* 保存成功提示条 */
 .save-success-banner {
   display: flex;
   align-items: center;
   gap: 0.5rem;
-  background: linear-gradient(135deg, #d1fae5 0%, #a7f3d0 100%);
-  border: 2px solid #10b981;
-  border-radius: 8px;
   padding: 0.75rem 1rem;
-  margin: 0 2rem 1rem 2rem;
+  background: linear-gradient(135deg, #dcfce7 0%, #bbf7d0 100%);
+  border: 1px solid #22c55e;
+  border-radius: 8px;
+  margin-bottom: 1rem;
   font-size: 0.9rem;
-  color: #065f46;
+  color: #166534;
   font-weight: 500;
-  box-shadow: 0 2px 8px rgba(16, 185, 129, 0.2);
-  animation: slideDown 0.3s ease-out;
 }
 
 .save-success-banner .save-icon {
-  font-size: 1.1rem;
+  font-size: 1rem;
 }
 
-.save-time {
+.save-success-banner .save-time {
   margin-left: auto;
-  font-size: 0.85rem;
-  opacity: 0.8;
+  font-size: 0.8rem;
+  color: #4ade80;
 }
 
-/* fade 过渡动画 */
+/* 淡入淡出动画 */
 .fade-enter-active,
 .fade-leave-active {
   transition: opacity 0.3s ease;
@@ -3638,96 +3698,59 @@ watch(currentStage, async (newStage, oldStage) => {
   opacity: 0;
 }
 
-.cancel-button,
-.temp-save-button,
-.confirm-button {
-  padding: 0.875rem 1.75rem; /* 🔥 增加左右内边距 */
-  border-radius: 25px;
-  font-weight: 600;
-  font-size: 0.95rem;
-  cursor: pointer;
-  transition: all 0.3s ease;
-  border: none;
-  display: inline-flex; /* 🔥 改为 inline-flex */
-  align-items: center;
-  justify-content: center;
-  gap: 0.5rem;
-  white-space: nowrap; /* 🔥 防止文字换行 */
-}
-
-.cancel-button:hover {
-  background: #f8fafc;
-  border-color: #cbd5e1;
-  transform: translateY(-2px);
-}
-
-/* 🔥 临时保存按钮 */
-.temp-save-button {
-  background: linear-gradient(45deg, #10b981, #059669);
-  color: white;
-  box-shadow: 0 4px 12px rgba(16, 185, 129, 0.3);
-}
-
-.temp-save-button:hover:not(:disabled) {
-  transform: translateY(-2px);
-  box-shadow: 0 6px 16px rgba(16, 185, 129, 0.4);
-}
-
-.temp-save-button:disabled {
-  opacity: 0.5;
-  cursor: not-allowed;
-  transform: none;
-}
-
-/* 🔥 已保存状态 */
-.temp-save-button.saved {
-  background: linear-gradient(45deg, #6b7280, #4b5563);
-  box-shadow: 0 4px 12px rgba(107, 114, 128, 0.3);
-}
-
-.temp-save-button.saved:hover:not(:disabled) {
-  box-shadow: 0 4px 12px rgba(107, 114, 128, 0.3);
-  transform: none;
-}
-
-.confirm-button {
-  background: linear-gradient(45deg, #3b82f6, #2563eb);
-  color: white;
-  box-shadow: 0 4px 12px rgba(59, 130, 246, 0.3);
-}
-
-.confirm-button:hover:not(:disabled) {
-  transform: translateY(-2px);
-  box-shadow: 0 6px 16px rgba(59, 130, 246, 0.4);
-}
-
-.confirm-button:disabled {
-  opacity: 0.5;
-  cursor: not-allowed;
-  transform: none;
-}
-
-.temp-save-button .save-icon {
-  font-size: 1.1rem;
-}
-
-/* 移动端适配 */
+/* 响应式 */
 @media (max-width: 768px) {
   .dialog-actions {
     flex-direction: column;
     gap: 0.75rem;
-    align-items: stretch; /* 🔥 移动端按钮拉伸 */
   }
 
   .cancel-button,
-  .temp-save-button,
-  .confirm-button {
-    width: 100%; /* 🔥 移动端按钮全宽 */
+  .confirm-button,
+  .temp-save-button {
+    width: 100%;
+    justify-content: center;
+    padding: 0.75rem;
+    font-size: 0.9rem;
   }
 
-  .save-success-banner {
-    margin: 0 1.5rem 1rem 1.5rem;
+  .task-title {
+    padding: 0.5rem 0.75rem;
+  }
+
+  .task-text {
     font-size: 0.85rem;
+  }
+}
+
+@keyframes fadeIn {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+@keyframes slideUp {
+  from {
+    opacity: 0;
+    transform: translateY(20px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@keyframes slideIn {
+  from {
+    opacity: 0;
+    transform: translateY(10px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
   }
 }
 </style>

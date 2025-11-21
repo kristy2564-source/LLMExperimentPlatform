@@ -151,7 +151,7 @@
                 <span class="dot"></span>
                 <span class="dot"></span>
               </div>
-              <div class="loading-text">AI正在分析策略方案，预计需要15-30秒...</div>
+              <div class="loading-text">AI正在分析你的策略，预计需要15-30秒...</div>
               <div class="loading-progress">
                 <div class="progress-bar">
                   <div class="progress-fill"></div>
@@ -214,7 +214,7 @@
               @click="handleNextStep"
               v-if="answerSubmitted || isConversationLimitReached"
             >
-              继续下一步 →
+              下一步
             </button>
           </div>
         </div>
@@ -375,7 +375,7 @@
           <h3>确认进入下一步</h3>
         </div>
         <div class="dialog-content">
-          <p>您即将完成策略制定阶段，进入下一个学习环节。请确认或修改您的最终策略方案。</p>
+          <p>您即将完成策略制定阶段，进入下一个学习环节。请确认或修改您的最终策略。</p>
 
           <!-- 🔥 新增：可编辑的快照区域 -->
           <div v-if="editableFinalAnswer" class="answer-preview">
@@ -383,12 +383,17 @@
               <span class="preview-icon">📝</span>
               <span class="preview-title">本步骤的最终内容（可编辑）</span>
             </div>
+            <!-- 🔥 新增：任务标题 -->
+            <div class="task-title">
+              <span class="task-icon">🔍</span>
+              <span class="task-text"> 任务：制定教室智能通风节能系统的整体策略 </span>
+            </div>
             <div class="preview-body">
               <textarea
                 v-model="editableFinalAnswer"
                 class="preview-textarea"
                 rows="10"
-                placeholder="请输入或修改你的最终策略方案..."
+                placeholder="请输入或修改你的最终策略..."
               ></textarea>
               <p class="preview-hint">💡 这是您最后一次修改机会，请仔细检查后点击"确定继续"。</p>
               <div class="char-count">字数：{{ editableFinalAnswer.length }} 字符</div>
@@ -402,7 +407,7 @@
             </div>
             <div class="summary-item" v-if="answerSubmitted">
               <span class="summary-icon">✅</span>
-              <span>已提交节能策略方案</span>
+              <span>已提交节能策略</span>
             </div>
             <div class="summary-item" v-if="isConversationLimitReached">
               <span class="summary-icon">⏰</span>
@@ -411,7 +416,7 @@
           </div>
           <div class="dialog-warning">
             <span class="warning-icon">⚠️</span>
-            <span>进入下一步后，您将无法返回修改当前的策略方案。</span>
+            <span>进入下一步后，您将无法返回修改当前的策略。</span>
           </div>
         </div>
         <div class="dialog-actions">
@@ -2801,5 +2806,28 @@ onMounted(async () => {
   opacity: 0.5;
   cursor: not-allowed;
   transform: none;
+}
+
+.task-title {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.75rem 1rem;
+  background: white;
+  border: 1px solid #e0f2fe;
+  border-radius: 8px;
+  margin-bottom: 0.75rem;
+}
+
+.task-icon {
+  font-size: 1.1rem;
+  flex-shrink: 0;
+}
+
+.task-text {
+  font-size: 0.9rem;
+  color: #334155;
+  font-weight: 500;
+  line-height: 1.4;
 }
 </style>

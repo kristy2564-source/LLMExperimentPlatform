@@ -218,7 +218,7 @@
               @click="handleNextStep"
               v-if="answerSubmitted || isConversationLimitReached"
             >
-              继续下一步 →
+              下一步
             </button>
           </div>
         </div>
@@ -371,17 +371,41 @@
       </div>
     </div>
 
-    <!-- 确认弹窗 -->
+    <!-- 🔥 修改：确认弹窗 - 统一风格版本 -->
     <div v-if="showConfirmDialog" class="confirm-dialog-overlay" @click="closeConfirmDialog">
       <div class="confirm-dialog" @click.stop>
         <div class="dialog-header">
-          <div class="dialog-icon">🚨</div>
+          <div class="dialog-icon">🎯</div>
           <h3>确认进入下一步</h3>
         </div>
         <div class="dialog-content">
-          <p>
-            您即将完成应急策略分析阶段，进入下一个学习环节。请确认您已经充分考虑了极端情况下的应对方案。
-          </p>
+          <p>您即将完成应急策略分析阶段，进入下一个学习环节。请确认或修改您的最终应急方案。</p>
+
+          <!-- 可编辑的快照区域 -->
+          <div v-if="editableFinalAnswer" class="answer-preview">
+            <div class="preview-header">
+              <span class="preview-icon">📝</span>
+              <span class="preview-title">本步骤的最终内容（可编辑）</span>
+            </div>
+
+            <!-- 🔥 新增：任务标题 -->
+            <div class="task-title">
+              <span class="task-icon">🚨</span>
+              <span class="task-text">任务：制定突发情况下的应急通风策略（60人+37℃高温场景）</span>
+            </div>
+
+            <div class="preview-body">
+              <textarea
+                v-model="editableFinalAnswer"
+                class="preview-textarea"
+                rows="10"
+                placeholder="请输入或修改你的最终应急方案..."
+              ></textarea>
+              <p class="preview-hint">💡 这是您最后一次修改机会，请仔细检查后点击"确定继续"。</p>
+              <div class="char-count">字数：{{ editableFinalAnswer.length }} 字符</div>
+            </div>
+          </div>
+
           <div class="completion-summary">
             <div class="summary-item">
               <span class="summary-icon">💬</span>
@@ -395,10 +419,6 @@
               <span class="summary-icon">⏰</span>
               <span>已达到最大对话轮次限制</span>
             </div>
-            <div class="summary-item">
-              <span class="summary-icon">🚨</span>
-              <span>已分析极端条件：60人 + 37℃高温</span>
-            </div>
             <div class="summary-item" v-if="helpSystem.totalCycles > 0">
               <span class="summary-icon">💡</span>
               <span>使用了 {{ helpSystem.totalCycles }} 次智能帮助</span>
@@ -406,12 +426,18 @@
           </div>
           <div class="dialog-warning">
             <span class="warning-icon">⚠️</span>
-            <span>进入下一步后，您将无法返回修改当前的应急策略方案。</span>
+            <span>进入下一步后，您将无法返回修改当前的应急策略。</span>
           </div>
         </div>
         <div class="dialog-actions">
           <button class="cancel-button" @click="closeConfirmDialog">返回对话</button>
-          <button class="confirm-button" @click="confirmNextStep">确定继续</button>
+          <button
+            class="confirm-button"
+            @click="confirmNextStep"
+            :disabled="!editableFinalAnswer.trim()"
+          >
+            确定继续
+          </button>
         </div>
       </div>
     </div>
@@ -428,6 +454,11 @@ import { trackStep5Event } from '../../src/utils/tracking.ts'
 const emit = defineEmits(['update-progress', 'show-next-steps'])
 
 const router = useRouter()
+
+// 🔥 新增：最终答案快照相关
+const finalAnswerSnapshot = ref('') // 本步最终答案快照
+const finalAnswerConfirmed = ref(false) // 是否已确认最终答案
+const editableFinalAnswer = ref('') // 可编辑的最终答案（用于弹窗中编辑）
 
 // 🔥 定义消息类型
 interface Message {
@@ -676,15 +707,16 @@ const saveToStorage = () => {
     ),
     currentStage: 1,
     isCompleted: answerSubmitted.value,
-    // 🔥 保存帮助系统状态
     helpSystem: {
       totalCycles: helpSystem.totalCycles,
       maxCycles: helpSystem.maxCycles,
       currentCycleUsed: { ...helpSystem.currentCycleUsed },
       isInCycle: helpSystem.isInCycle,
     },
-    // 🔥 保存应急方案元数据
     emergencyStrategyMetadata: extractEmergencyMetadata(),
+    // 🔥 新增：快照字段
+    finalAnswerSnapshot: finalAnswerSnapshot.value,
+    finalAnswerConfirmed: finalAnswerConfirmed.value,
   }
 
   simpleStorage.saveStepData(5, stepData)
@@ -710,6 +742,24 @@ function saveHelpSystemState() {
     localStorage.setItem('step5_data', JSON.stringify(stepData))
     console.log('💾 Step5 帮助系统状态已保存')
   }
+}
+
+// 🔥 修改：生成应急方案快照 - 去掉markdown格式
+const generateEmergencySnapshot = (): string => {
+  const userMessages = messages.value.filter((msg) => msg.type === 'user').map((msg) => msg.content)
+
+  if (userMessages.length === 0) {
+    return '（尚未提交应急方案内容）'
+  }
+
+  const validMessages = userMessages.filter((content) => content.trim().length > 20)
+
+  if (validMessages.length === 0) {
+    return '（尚未提交有效的应急方案内容）'
+  }
+
+  // 🔥 简化格式，去掉markdown
+  return validMessages.join('\n\n')
 }
 
 // 🔥 新增：提取应急方案元数据
@@ -1100,7 +1150,12 @@ async function callEnhancedHelpAPI(
   }
 }
 
+// 🔥 修改：打开确认弹窗 - 初始化可编辑内容
 const handleNextStep = () => {
+  // 生成快照
+  finalAnswerSnapshot.value = generateEmergencySnapshot()
+  // 初始化可编辑内容为当前快照
+  editableFinalAnswer.value = finalAnswerSnapshot.value
   showConfirmDialog.value = true
 }
 
@@ -1108,16 +1163,32 @@ const closeConfirmDialog = () => {
   showConfirmDialog.value = false
 }
 
-// 🔥 修改：确认进入下一步（添加埋点）
+// 🔥 修改：确认进入下一步 - 保存编辑后的快照
 const confirmNextStep = async () => {
-  // 🔥 埋点 - 点击继续下一步
+  // 使用编辑后的内容作为最终快照
+  finalAnswerSnapshot.value = editableFinalAnswer.value.trim()
+  finalAnswerConfirmed.value = true
+  showConfirmDialog.value = false
+
+  // 1. 保存到 localStorage（Step6 会读取）
+  simpleStorage.setItem('step5_final_answer', {
+    content: finalAnswerSnapshot.value,
+    confirmedAt: new Date().toISOString(),
+  })
+
+  // 2. 埋点 - 点击继续下一步
   await trackStep5Event('step5_next_step_click', getSessionId(), conversationCount.value, {
     isCompleted: answerSubmitted.value,
     totalConversations: conversationCount.value,
     helpUsed: helpSystem.totalCycles,
+    finalAnswerLength: finalAnswerSnapshot.value.length,
+    wasEdited: editableFinalAnswer.value !== generateEmergencySnapshot(),
   })
 
-  showConfirmDialog.value = false
+  // 3. 保存到 storage（包含快照）
+  saveToStorage()
+
+  // 4. 跳转下一步
   goToNextStep()
 }
 
@@ -1574,175 +1645,6 @@ onMounted(async () => {
   50% {
     transform: scale(1.1);
     opacity: 0.8;
-  }
-}
-
-/* 确认弹窗样式 */
-.confirm-dialog-overlay {
-  position: fixed;
-  top: 0;
-  left: 0;
-  right: 0;
-  bottom: 0;
-  background: rgba(0, 0, 0, 0.5);
-  backdrop-filter: blur(4px);
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  z-index: 1000;
-  animation: fadeIn 0.3s ease-out;
-}
-
-.confirm-dialog {
-  background: white;
-  border-radius: 20px;
-  padding: 2rem;
-  max-width: 500px;
-  width: 90%;
-  max-height: 80vh;
-  overflow-y: auto;
-  box-shadow: 0 20px 40px rgba(0, 0, 0, 0.2);
-  animation: slideUp 0.3s ease-out;
-}
-
-.dialog-header {
-  display: flex;
-  align-items: center;
-  gap: 1rem;
-  margin-bottom: 1.5rem;
-  padding-bottom: 1rem;
-  border-bottom: 2px solid #e2e8f0;
-}
-
-.dialog-icon {
-  width: 3rem;
-  height: 3rem;
-  border-radius: 50%;
-  background: linear-gradient(45deg, #ef4444, #dc2626);
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  font-size: 1.5rem;
-  flex-shrink: 0;
-}
-
-.dialog-header h3 {
-  color: #1e293b;
-  font-size: 1.3rem;
-  margin: 0;
-  font-weight: 600;
-}
-
-.dialog-content {
-  margin-bottom: 2rem;
-}
-
-.dialog-content p {
-  color: #475569;
-  font-size: 1rem;
-  line-height: 1.6;
-  margin-bottom: 1.5rem;
-}
-
-.completion-summary {
-  background: linear-gradient(135deg, #f8fafc 0%, #f1f5f9 100%);
-  border: 1px solid #e2e8f0;
-  border-radius: 12px;
-  padding: 1.5rem;
-  margin-bottom: 1rem;
-}
-
-.summary-item {
-  display: flex;
-  align-items: center;
-  gap: 0.75rem;
-  margin-bottom: 0.75rem;
-  font-size: 0.95rem;
-  color: #334155;
-}
-
-.summary-item:last-child {
-  margin-bottom: 0;
-}
-
-.summary-icon {
-  font-size: 1.1rem;
-  flex-shrink: 0;
-}
-
-.dialog-warning {
-  display: flex;
-  align-items: center;
-  gap: 0.75rem;
-  background: linear-gradient(135deg, #fef3c7 0%, #fde68a 100%);
-  border: 1px solid #f59e0b;
-  border-radius: 8px;
-  padding: 1rem;
-  font-size: 0.9rem;
-  color: #92400e;
-}
-
-.warning-icon {
-  font-size: 1.1rem;
-  flex-shrink: 0;
-}
-
-.dialog-actions {
-  display: flex;
-  gap: 1rem;
-  justify-content: flex-end;
-}
-
-.cancel-button,
-.confirm-button {
-  padding: 0.75rem 2rem;
-  border-radius: 25px;
-  font-weight: 600;
-  font-size: 1rem;
-  cursor: pointer;
-  transition: all 0.3s ease;
-  border: none;
-}
-
-.cancel-button {
-  background: #f1f5f9;
-  color: #475569;
-  border: 2px solid #e2e8f0;
-}
-
-.cancel-button:hover {
-  background: #e2e8f0;
-  transform: translateY(-1px);
-}
-
-.confirm-button {
-  background: linear-gradient(45deg, #10b981, #059669);
-  color: white;
-  box-shadow: 0 4px 12px rgba(16, 185, 129, 0.3);
-}
-
-.confirm-button:hover {
-  transform: translateY(-2px);
-  box-shadow: 0 6px 16px rgba(16, 185, 129, 0.4);
-}
-
-@keyframes fadeIn {
-  from {
-    opacity: 0;
-  }
-  to {
-    opacity: 1;
-  }
-}
-
-@keyframes slideUp {
-  from {
-    opacity: 0;
-    transform: translateY(20px);
-  }
-  to {
-    opacity: 1;
-    transform: translateY(0);
   }
 }
 
@@ -3117,7 +3019,132 @@ onMounted(async () => {
   }
 }
 
-/* 🔥 可编辑的快照文本框 */
+/* ==================== 确认弹窗统一样式 ==================== */
+.confirm-dialog-overlay {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background: rgba(0, 0, 0, 0.5);
+  backdrop-filter: blur(4px);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 1000;
+  animation: fadeIn 0.3s ease-out;
+}
+
+.confirm-dialog {
+  background: white;
+  border-radius: 20px;
+  padding: 2rem;
+  max-width: 500px;
+  width: 90%;
+  max-height: 80vh;
+  overflow-y: auto;
+  box-shadow: 0 20px 40px rgba(0, 0, 0, 0.2);
+  animation: slideUp 0.3s ease-out;
+}
+
+.dialog-header {
+  display: flex;
+  align-items: center;
+  gap: 1rem;
+  margin-bottom: 1.5rem;
+  padding-bottom: 1rem;
+  border-bottom: 2px solid #e2e8f0;
+}
+
+.dialog-icon {
+  width: 3rem;
+  height: 3rem;
+  border-radius: 50%;
+  background: linear-gradient(45deg, #0ea5e9, #0284c7);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 1.5rem;
+  flex-shrink: 0;
+}
+
+.dialog-header h3 {
+  color: #1e293b;
+  font-size: 1.3rem;
+  margin: 0;
+  font-weight: 600;
+}
+
+.dialog-content {
+  margin-bottom: 2rem;
+}
+
+.dialog-content p {
+  color: #475569;
+  font-size: 1rem;
+  line-height: 1.6;
+  margin-bottom: 1.5rem;
+}
+
+/* 快照预览区域 */
+.answer-preview {
+  background: linear-gradient(135deg, #f0f9ff 0%, #e0f2fe 100%);
+  border: 2px solid #0ea5e9;
+  border-radius: 12px;
+  padding: 1rem;
+  margin: 1.5rem 0;
+  animation: slideIn 0.3s ease-out;
+}
+
+.preview-header {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  margin-bottom: 0.75rem;
+  padding-bottom: 0.5rem;
+  border-bottom: 1px solid rgba(14, 165, 233, 0.2);
+}
+
+.preview-icon {
+  font-size: 1.2rem;
+}
+
+.preview-title {
+  font-weight: 600;
+  color: #0369a1;
+  font-size: 0.95rem;
+}
+
+/* 🔥 新增：任务标题样式 */
+.task-title {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.75rem 1rem;
+  background: white;
+  border: 1px solid #e0f2fe;
+  border-radius: 8px;
+  margin-bottom: 0.75rem;
+}
+
+.task-icon {
+  font-size: 1.1rem;
+  flex-shrink: 0;
+}
+
+.task-text {
+  font-size: 0.9rem;
+  color: #334155;
+  font-weight: 500;
+  line-height: 1.4;
+}
+
+.preview-body {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+
 .preview-textarea {
   width: 100%;
   border: 2px solid #0ea5e9;
@@ -3139,15 +3166,163 @@ onMounted(async () => {
   box-shadow: 0 0 0 3px rgba(14, 165, 233, 0.1);
 }
 
-.preview-textarea::placeholder {
-  color: #94a3b8;
+.preview-hint {
+  color: #64748b;
+  font-size: 0.85rem;
+  margin: 0;
+  font-style: italic;
 }
 
 .char-count {
   text-align: right;
-  color: #64748b;
-  font-size: 0.75rem;
-  margin-top: 0.5rem;
-  font-style: italic;
+  font-size: 0.8rem;
+  color: #94a3b8;
+}
+
+/* 完成摘要 */
+.completion-summary {
+  background: linear-gradient(135deg, #f8fafc 0%, #f1f5f9 100%);
+  border: 1px solid #e2e8f0;
+  border-radius: 12px;
+  padding: 1.5rem;
+  margin-bottom: 1rem;
+}
+
+.summary-item {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  margin-bottom: 0.75rem;
+  font-size: 0.95rem;
+  color: #334155;
+}
+
+.summary-item:last-child {
+  margin-bottom: 0;
+}
+
+.summary-icon {
+  font-size: 1.1rem;
+  flex-shrink: 0;
+}
+
+/* 警告提示 */
+.dialog-warning {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  background: linear-gradient(135deg, #fef3c7 0%, #fde68a 100%);
+  border: 1px solid #f59e0b;
+  border-radius: 8px;
+  padding: 1rem;
+  font-size: 0.9rem;
+  color: #92400e;
+}
+
+.warning-icon {
+  font-size: 1.1rem;
+  flex-shrink: 0;
+}
+
+/* 按钮区域 */
+.dialog-actions {
+  display: flex;
+  gap: 1rem;
+  justify-content: flex-end;
+}
+
+.cancel-button,
+.confirm-button {
+  padding: 0.75rem 2rem;
+  border-radius: 25px;
+  font-weight: 600;
+  font-size: 1rem;
+  cursor: pointer;
+  transition: all 0.3s ease;
+  border: none;
+}
+
+.cancel-button {
+  background: #f1f5f9;
+  color: #475569;
+  border: 2px solid #e2e8f0;
+}
+
+.cancel-button:hover {
+  background: #e2e8f0;
+  transform: translateY(-1px);
+}
+
+.confirm-button {
+  background: linear-gradient(45deg, #10b981, #059669);
+  color: white;
+  box-shadow: 0 4px 12px rgba(16, 185, 129, 0.3);
+}
+
+.confirm-button:hover:not(:disabled) {
+  transform: translateY(-2px);
+  box-shadow: 0 6px 16px rgba(16, 185, 129, 0.4);
+}
+
+.confirm-button:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+  transform: none;
+}
+
+/* 响应式 */
+@media (max-width: 768px) {
+  .confirm-dialog {
+    width: 95%;
+    padding: 1.5rem;
+    max-height: 85vh;
+  }
+
+  .dialog-header h3 {
+    font-size: 1.1rem;
+  }
+
+  .dialog-icon {
+    width: 2.5rem;
+    height: 2.5rem;
+    font-size: 1.3rem;
+  }
+
+  .dialog-content p {
+    font-size: 0.9rem;
+  }
+
+  .completion-summary {
+    padding: 1rem;
+  }
+
+  .summary-item {
+    font-size: 0.85rem;
+  }
+
+  .dialog-warning {
+    font-size: 0.8rem;
+    padding: 0.75rem;
+  }
+
+  .dialog-actions {
+    flex-direction: column;
+    gap: 0.75rem;
+  }
+
+  .cancel-button,
+  .confirm-button {
+    width: 100%;
+    padding: 0.75rem;
+    font-size: 0.9rem;
+  }
+
+  .task-title {
+    padding: 0.5rem 0.75rem;
+  }
+
+  .task-text {
+    font-size: 0.85rem;
+  }
 }
 </style>

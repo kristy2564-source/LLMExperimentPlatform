@@ -1,4 +1,4 @@
-// api/ai/generate-solution.js - 改进版：纯文本输出 + 重试机制
+// api/ai/generate-solution.js - 修复版：纯文本输出 + 重试机制
 import { MongoClient } from 'mongodb'
 
 let cachedClient = null
@@ -14,8 +14,8 @@ async function connectToDatabase() {
   return client
 }
 
-// 新增：从数据库获取完整对话历史（Step2-6）
-// 🔥 优化：同时读取对话历史 + 最终快照
+// 从数据库获取完整对话历史（Step2-6）
+// 🔥 返回对象包含 stepGroups 和 finalSnapshots
 async function getCompleteConversationHistory(sessionId) {
   try {
     console.log('📚 [获取历史] 开始查询 SessionID:', sessionId)
@@ -74,6 +74,7 @@ async function getCompleteConversationHistory(sessionId) {
       step3: stepGroups[3].length,
       step4: stepGroups[4].length,
       step5: stepGroups[5].length,
+      step6: stepGroups[6].length,
     })
 
     console.log('📸 [获取历史] 找到最终快照:', {
@@ -94,6 +95,7 @@ async function getCompleteConversationHistory(sessionId) {
 }
 
 // 🔥 核心函数：生成方案（带重试）
+// 🔥 修复：正确解构 getCompleteConversationHistory 的返回值
 async function generateSolutionWithRetry(sessionId, maxRetries = 2) {
   console.log('🔄 [方案生成] 开始，最大重试次数:', maxRetries)
 
@@ -103,15 +105,18 @@ async function generateSolutionWithRetry(sessionId, maxRetries = 2) {
       console.log(`🎯 [尝试 ${attempt + 1}/${maxRetries + 1}] 开始生成方案...`)
       console.log('='.repeat(60))
 
-      // 获取完整对话历史
-      const stepGroups = await getCompleteConversationHistory(sessionId)
+      // 🔥 修复：正确解构返回值
+      const historyResult = await getCompleteConversationHistory(sessionId)
 
-      if (!stepGroups) {
+      if (!historyResult) {
         throw new Error('无法获取对话历史')
       }
 
-      // 构建提示词
-      const prompt = buildTextPrompt(stepGroups, attempt)
+      // 🔥 修复：解构出 stepGroups 和 finalSnapshots
+      const { stepGroups, finalSnapshots } = historyResult
+
+      // 🔥 修复：传递正确的三个参数
+      const prompt = buildTextPrompt(stepGroups, finalSnapshots, attempt)
 
       // 调用 AI API
       let solution = await callDeepSeekAPI(prompt, attempt)
@@ -123,7 +128,7 @@ async function generateSolutionWithRetry(sessionId, maxRetries = 2) {
         console.log('✅ [方案生成] 内容验证通过')
         console.log('📊 [方案生成] 匹配关键词:', validation.matchedKeywords)
 
-        // 🔥 新增：在返回前做服务端清洗
+        // 🔥 在返回前做服务端清洗
         solution = serverNormalize(solution)
         console.log('✅ [方案生成] 服务端清洗完成')
 
@@ -153,11 +158,12 @@ async function generateSolutionWithRetry(sessionId, maxRetries = 2) {
 }
 
 // 🔥 构建纯文本提示词
-// 🔥 修改：优先使用最终快照，其次使用对话历史
+// 🔥 修复：确保参数顺序和类型正确
 function buildTextPrompt(stepGroups, finalSnapshots, attemptNumber) {
   console.log('📝 [构建提示词] 开始...')
+  console.log('📊 [构建提示词] attemptNumber:', attemptNumber)
 
-  // 🔥 新增：格式化快照或对话
+  // 🔥 格式化快照或对话
   const formatStepContent = (step, conversations, snapshot) => {
     // 优先使用最终快照
     if (snapshot) {
@@ -166,7 +172,7 @@ function buildTextPrompt(stepGroups, finalSnapshots, attemptNumber) {
     }
 
     // 其次使用对话历史
-    if (conversations.length === 0) {
+    if (!conversations || conversations.length === 0) {
       return `（本阶段暂无记录）`
     }
 
@@ -174,7 +180,7 @@ function buildTextPrompt(stepGroups, finalSnapshots, attemptNumber) {
     return conversations
       .map(
         (conv, idx) =>
-          `对话${idx + 1}:\n学生: ${conv.userInput}\nAI: ${conv.aiResponse.substring(0, 150)}...`,
+          `对话${idx + 1}:\n学生: ${conv.userInput}\nAI: ${conv.aiResponse?.substring(0, 150) || ''}...`,
       )
       .join('\n\n')
   }
@@ -263,11 +269,11 @@ async function callDeepSeekAPI(prompt, attemptNumber) {
           content: prompt,
         },
       ],
-      max_tokens: 2500, // 🔥 从3000降到2500
-      temperature: 0.6, // 🔥 从0.7降到0.6，减少随意发挥
-      top_p: 0.85, // 🔥 从0.9降到0.85，提高确定性
-      frequency_penalty: 0.3, // 🔥 从0.2提高到0.3，减少重复
-      presence_penalty: 0.2, // 🔥 从0.1提高到0.2，鼓励简洁
+      max_tokens: 2500,
+      temperature: 0.6,
+      top_p: 0.85,
+      frequency_penalty: 0.3,
+      presence_penalty: 0.2,
       stream: false,
     }),
   })
@@ -323,7 +329,7 @@ function validateSolutionContent(solution) {
   }
 }
 
-// 🔥 新增：服务端 Markdown 清洗函数
+// 🔥 服务端 Markdown 清洗函数
 function serverNormalize(md = '') {
   console.log('🧹 [服务端清洗] 原始内容长度:', md.length)
 
@@ -350,7 +356,7 @@ function serverNormalize(md = '') {
   return s
 }
 
-// 🔥 新增：分节切片函数（可选）
+// 🔥 分节切片函数（可选）
 function splitSections(md) {
   console.log('✂️ [分节切片] 开始...')
 
@@ -485,7 +491,7 @@ function generateTextFallback() {
 - 投诉减少60%
 - 自动化率95%`
 
-  // 🔥 新增：备用方案也要清洗
+  // 🔥 备用方案也要清洗
   console.log('🔧 [备用方案] 开始服务端清洗')
   return serverNormalize(fallback)
 }
@@ -584,7 +590,7 @@ export default async function handler(req, res) {
       format: 'text',
     })
 
-    // 🔥 新增：生成分节数据（可选）
+    // 🔥 生成分节数据（可选）
     const sections = splitSections(solution)
 
     console.log('✅ [方案生成API] 成功完成')
@@ -592,13 +598,13 @@ export default async function handler(req, res) {
 
     res.status(200).json({
       integratedSolution: solution,
-      sections: sections, // 🔥 新增：分节数组
+      sections: sections,
       metadata: {
         usedFallback,
         format: 'text',
         generationTime: new Date().toISOString(),
         includeComponents,
-        sectionCount: sections.length, // 🔥 新增：节数统计
+        sectionCount: sections.length,
       },
     })
   } catch (error) {

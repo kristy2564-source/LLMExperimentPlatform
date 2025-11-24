@@ -209,3 +209,46 @@ export function trackStep5Event(
     event_data: eventData,
   })
 }
+
+/**
+ * Step6 事件类型定义
+ */
+export type Step6EventType =
+  | 'step6_enter' // 进入 Step6
+  | 'step6_edit_start' // 开始编辑
+  | 'step6_edit_change' // 内容变化（防抖记录）
+  | 'step6_draft_save' // 保存草稿
+  | 'step6_reset_to_draft' // 重置为初稿
+  | 'step6_ai_drawer_open' // 打开 AI 助手
+  | 'step6_ai_drawer_close' // 关闭 AI 助手
+  | 'step6_ai_tab_switch' // 切换 AI 标签
+  | 'step6_chat_send' // 发送对话消息
+  | 'step6_reference_generate' // 生成参考方案
+  | 'step6_reference_regenerate' // 重新生成参考方案
+  | 'step6_reference_copy' // 复制参考方案
+  | 'step6_reference_insert' // 插入参考方案到编辑器
+  | 'step6_fullscreen_toggle' // 切换全屏
+  | 'step6_draft_preview_toggle' // 切换初稿预览
+  | 'step6_submit_attempt' // 尝试提交（点击提交按钮）
+  | 'step6_submit_confirm' // 确认提交
+  | 'step6_submit_cancel' // 取消提交
+  | 'step6_submit_success' // 提交成功
+  | 'step6_similarity_calculated' // 相似度计算完成
+
+/**
+ * 快捷方法：Step6 埋点
+ * Step6 是方案整合阶段，单阶段，不使用对话计数
+ */
+export function trackStep6Event(
+  eventName: Step6EventType | string,
+  sessionId: string,
+  eventData?: Record<string, EventDataValue>,
+): Promise<void> {
+  return tracker.track(eventName, {
+    sessionId,
+    step: 6,
+    stage: 1, // Step6 固定为单阶段
+    conversationCount: 0, // Step6 不使用对话计数
+    event_data: eventData,
+  })
+}

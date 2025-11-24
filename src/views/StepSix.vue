@@ -295,10 +295,16 @@
 </template>
 
 <script setup lang="ts">
-import { ref, computed, onMounted, nextTick, watch } from 'vue'
+import { ref, computed, onMounted, onUnmounted, nextTick, watch } from 'vue'
 import { useRouter } from 'vue-router'
 import { simpleStorage } from '../../api/utils/simpleStorage'
 import { marked } from 'marked'
+import { trackStep6Event } from '../../src/utils/tracking'
+import {
+  analyzeSimilarity,
+  quickSimilarityCheck,
+  type SimilarityResult,
+} from '../../src/utils/textSimilarity'
 
 // ==================== 类型定义 ====================
 interface Message {
@@ -308,12 +314,18 @@ interface Message {
   timestamp: Date
 }
 
+interface EditEvent {
+  timestamp: string
+  wordCount: number
+  action: 'focus' | 'blur' | 'input' | 'save' | 'reset'
+}
+
 // ==================== 基础状态 ====================
 const router = useRouter()
 const editorTextarea = ref<HTMLTextAreaElement | null>(null)
 const chatArea = ref<HTMLElement | null>(null)
 
-// 引导卡片状态（新增）
+// 引导卡片状态
 const guidanceCollapsed = ref(false)
 
 // 方案数据
@@ -328,7 +340,7 @@ const isFullscreen = ref(false)
 const showAIAssistant = ref(false)
 const activeAITab = ref('chat')
 
-// AI标签页配置（简化为2个）
+// AI标签页配置
 const aiTabs = [
   {
     id: 'chat',
@@ -355,12 +367,120 @@ const solutionVersion = ref(0)
 const solutionGeneratedAt = ref('')
 const isGenerating = ref(false)
 
+// 🔥 新增：编辑追踪状态
+const editStartTime = ref<Date | null>(null)
+const editEvents = ref<EditEvent[]>([])
+const isEditing = ref(false)
+const lastInputTime = ref<number>(0)
+const inputDebounceTimer = ref<ReturnType<typeof setTimeout> | null>(null)
+const contentBeforeEdit = ref('')
+
+// 🔥 新增：相似度追踪
+const hasUsedAIReference = ref(false) // 是否使用过AI参考
+const aiReferenceUsageLog = ref<
+  Array<{
+    action: 'copy' | 'insert'
+    timestamp: string
+    aiContentLength: number
+  }>
+>([])
+
 // ==================== 计算属性 ====================
 const wordCount = computed(() => {
   return studentFinalPlan.value.replace(/\s/g, '').length
 })
 
-// ==================== 引导卡片操作（新增） ====================
+// ==================== 🔥 埋点：进入页面 ====================
+const trackEnter = async () => {
+  const sessionId = getSessionId()
+  await trackStep6Event('step6_enter', sessionId, {
+    hasInitialDraft: !!studentInitialDraft.value,
+    initialDraftLength: studentInitialDraft.value.length,
+    hasSavedDraft: !!simpleStorage.getItem('step6_draft'),
+    timestamp: new Date().toISOString(),
+  })
+}
+
+// ==================== 🔥 埋点：编辑行为追踪 ====================
+const handleEditorFocus = async () => {
+  if (!isEditing.value) {
+    isEditing.value = true
+    editStartTime.value = new Date()
+    contentBeforeEdit.value = studentFinalPlan.value
+
+    const sessionId = getSessionId()
+    await trackStep6Event('step6_edit_start', sessionId, {
+      initialWordCount: wordCount.value,
+      hasAIReference: hasUsedAIReference.value,
+      timestamp: new Date().toISOString(),
+    })
+
+    editEvents.value.push({
+      timestamp: new Date().toISOString(),
+      wordCount: wordCount.value,
+      action: 'focus',
+    })
+  }
+}
+
+const handleEditorBlur = async () => {
+  if (isEditing.value && editStartTime.value) {
+    const editDuration = (new Date().getTime() - editStartTime.value.getTime()) / 1000
+
+    const sessionId = getSessionId()
+    await trackStep6Event('step6_edit_change', sessionId, {
+      editDurationSeconds: Math.round(editDuration),
+      startWordCount: contentBeforeEdit.value.replace(/\s/g, '').length,
+      endWordCount: wordCount.value,
+      wordCountChange: wordCount.value - contentBeforeEdit.value.replace(/\s/g, '').length,
+      hasAIReference: hasUsedAIReference.value,
+      timestamp: new Date().toISOString(),
+    })
+
+    editEvents.value.push({
+      timestamp: new Date().toISOString(),
+      wordCount: wordCount.value,
+      action: 'blur',
+    })
+
+    isEditing.value = false
+  }
+}
+
+const handleEditorInput = () => {
+  const now = Date.now()
+
+  // 防抖记录输入事件（每5秒最多记录一次）
+  if (now - lastInputTime.value > 5000) {
+    lastInputTime.value = now
+
+    editEvents.value.push({
+      timestamp: new Date().toISOString(),
+      wordCount: wordCount.value,
+      action: 'input',
+    })
+  }
+
+  // 清除之前的定时器
+  if (inputDebounceTimer.value) {
+    clearTimeout(inputDebounceTimer.value)
+  }
+
+  // 设置新的防抖定时器（用户停止输入3秒后自动保存）
+  inputDebounceTimer.value = setTimeout(() => {
+    autoSaveDraft()
+  }, 3000)
+}
+
+const autoSaveDraft = () => {
+  simpleStorage.setItem('step6_draft', {
+    content: studentFinalPlan.value,
+    savedAt: new Date().toISOString(),
+    autoSaved: true,
+  })
+}
+
+// ==================== 引导卡片操作 ====================
 const collapseGuidance = () => {
   guidanceCollapsed.value = true
   simpleStorage.setItem('step6_guidance_collapsed', true)
@@ -372,8 +492,13 @@ const expandGuidance = () => {
 }
 
 // ==================== 工具栏操作 ====================
-const toggleDraftPreview = () => {
+const toggleDraftPreview = async () => {
   showDraftPreview.value = !showDraftPreview.value
+
+  const sessionId = getSessionId()
+  await trackStep6Event('step6_draft_preview_toggle', sessionId, {
+    isOpen: showDraftPreview.value,
+  })
 }
 
 const closeDraftPreview = () => {
@@ -385,31 +510,59 @@ const copyDraftToEditor = () => {
   closeDraftPreview()
 }
 
-const toggleFullscreen = () => {
+const toggleFullscreen = async () => {
   isFullscreen.value = !isFullscreen.value
   document.body.style.overflow = isFullscreen.value ? 'hidden' : 'auto'
+
+  const sessionId = getSessionId()
+  await trackStep6Event('step6_fullscreen_toggle', sessionId, {
+    isFullscreen: isFullscreen.value,
+  })
 }
 
 // ==================== 编辑器操作 ====================
-const resetFromDraft = () => {
+const resetFromDraft = async () => {
   if (confirm('确定要重置为初稿内容吗？当前编辑的内容将丢失。')) {
+    const previousContent = studentFinalPlan.value
     studentFinalPlan.value = studentInitialDraft.value
+
+    const sessionId = getSessionId()
+    await trackStep6Event('step6_reset_to_draft', sessionId, {
+      previousWordCount: previousContent.replace(/\s/g, '').length,
+      newWordCount: wordCount.value,
+    })
+
+    editEvents.value.push({
+      timestamp: new Date().toISOString(),
+      wordCount: wordCount.value,
+      action: 'reset',
+    })
   }
 }
 
-const saveDraft = () => {
+const saveDraft = async () => {
   simpleStorage.setItem('step6_draft', {
     content: studentFinalPlan.value,
     savedAt: new Date().toISOString(),
   })
   lastSaveTime.value = formatTime(new Date())
 
-  // 显示保存提示
+  const sessionId = getSessionId()
+  await trackStep6Event('step6_draft_save', sessionId, {
+    wordCount: wordCount.value,
+    hasAIReference: hasUsedAIReference.value,
+  })
+
+  editEvents.value.push({
+    timestamp: new Date().toISOString(),
+    wordCount: wordCount.value,
+    action: 'save',
+  })
+
   showSaveToast()
 }
 
 const showSaveToast = () => {
-  // 简单的保存提示（可以用更好的toast组件替代）
   const toast = document.createElement('div')
   toast.textContent = '✓ 草稿已保存'
   toast.style.cssText = `
@@ -432,24 +585,64 @@ const showSaveToast = () => {
   }, 2000)
 }
 
+// ==================== 🔥 提交最终方案（含相似度计算） ====================
 const submitFinalSolution = async () => {
   if (!studentFinalPlan.value.trim()) {
     alert('请先编辑你的最终方案')
     return
   }
 
-  // 用户点击取消时，直接返回，不执行后续代码
+  const sessionId = getSessionId()
+
+  // 埋点 - 尝试提交
+  await trackStep6Event('step6_submit_attempt', sessionId, {
+    wordCount: wordCount.value,
+    hasAIReference: hasUsedAIReference.value,
+    aiReferenceUsageCount: aiReferenceUsageLog.value.length,
+  })
+
   if (!confirm('确定要提交最终方案吗？提交后将无法修改。')) {
-    return // 🔥 点击取消时停止执行
+    // 埋点 - 取消提交
+    await trackStep6Event('step6_submit_cancel', sessionId, {})
+    return
   }
 
-  // 以下代码只有在点击"确定"时才会执行
+  // 埋点 - 确认提交
+  await trackStep6Event('step6_submit_confirm', sessionId, {
+    wordCount: wordCount.value,
+  })
+
   finalSubmitted.value = true
 
   try {
-    await submitToServer(studentFinalPlan.value)
+    // 🔥 计算相似度（如果使用过AI参考）
+    let similarityResult: SimilarityResult | null = null
+    if (hasUsedAIReference.value && aiReferenceSolution.value) {
+      similarityResult = analyzeSimilarity(studentFinalPlan.value, aiReferenceSolution.value)
 
-    // 🔥 提交成功后的提示和跳转
+      // 埋点 - 相似度计算结果
+      await trackStep6Event('step6_similarity_calculated', sessionId, {
+        overallSimilarity: similarityResult.overallSimilarity,
+        lexicalSimilarity: similarityResult.dimensions.lexical,
+        keywordSimilarity: similarityResult.dimensions.keyword,
+        structureSimilarity: similarityResult.dimensions.structure,
+        conclusion: similarityResult.conclusion,
+        matchedKeywordsCount: similarityResult.matchedKeywords.length,
+        matchedKeywords: similarityResult.matchedKeywords.join(','),
+      })
+    }
+
+    await submitToServer(studentFinalPlan.value, similarityResult)
+
+    // 埋点 - 提交成功
+    await trackStep6Event('step6_submit_success', sessionId, {
+      wordCount: wordCount.value,
+      editEventsCount: editEvents.value.length,
+      hasAIReference: hasUsedAIReference.value,
+      similarityScore: similarityResult?.overallSimilarity || null,
+      similarityConclusion: similarityResult?.conclusion || null,
+    })
+
     alert('✅ 最终方案已成功提交！\n\n即将进入下一步：自我评估与反思')
 
     setTimeout(() => {
@@ -465,14 +658,13 @@ const submitFinalSolution = async () => {
   } catch (error) {
     console.error('提交失败:', error)
     alert('提交失败，但已保存在本地')
-    finalSubmitted.value = false // 🔥 提交失败时恢复状态
+    finalSubmitted.value = false
   }
 }
 
-const submitToServer = async (content: string) => {
+const submitToServer = async (content: string, similarityResult: SimilarityResult | null) => {
   const sessionId = getSessionId()
 
-  // 收集Step2-5的最终快照
   const componentSnapshots = {
     step2Final: simpleStorage.getItem('step2_final_answer')?.content || null,
     step3Final: simpleStorage.getItem('step3_final_answer')?.content || null,
@@ -492,6 +684,23 @@ const submitToServer = async (content: string) => {
       studentInitialDraft: studentInitialDraft.value,
       componentSnapshots,
       submittedAt: new Date().toISOString(),
+      // 🔥 新增：编辑行为数据
+      editBehavior: {
+        editEvents: editEvents.value,
+        totalEditEvents: editEvents.value.length,
+        hasUsedAIReference: hasUsedAIReference.value,
+        aiReferenceUsageLog: aiReferenceUsageLog.value,
+      },
+      // 🔥 新增：相似度数据
+      similarityAnalysis: similarityResult
+        ? {
+            overallSimilarity: similarityResult.overallSimilarity,
+            dimensions: similarityResult.dimensions,
+            conclusion: similarityResult.conclusion,
+            description: similarityResult.description,
+            matchedKeywords: similarityResult.matchedKeywords,
+          }
+        : null,
     }),
   })
 
@@ -503,15 +712,36 @@ const submitToServer = async (content: string) => {
 }
 
 // ==================== AI助手抽屉 ====================
-const openAIAssistant = (tab: string = 'chat') => {
+const openAIAssistant = async (tab: string = 'chat') => {
   showAIAssistant.value = true
   activeAITab.value = tab
   document.body.style.overflow = 'hidden'
+
+  const sessionId = getSessionId()
+  await trackStep6Event('step6_ai_drawer_open', sessionId, {
+    initialTab: tab,
+  })
 }
 
-const closeAIAssistant = () => {
+const closeAIAssistant = async () => {
   showAIAssistant.value = false
   document.body.style.overflow = 'auto'
+
+  const sessionId = getSessionId()
+  await trackStep6Event('step6_ai_drawer_close', sessionId, {
+    lastTab: activeAITab.value,
+  })
+}
+
+const switchAITab = async (tabId: string) => {
+  const previousTab = activeAITab.value
+  activeAITab.value = tabId
+
+  const sessionId = getSessionId()
+  await trackStep6Event('step6_ai_tab_switch', sessionId, {
+    fromTab: previousTab,
+    toTab: tabId,
+  })
 }
 
 // ==================== 对话功能 ====================
@@ -524,6 +754,14 @@ const sendChatMessage = async () => {
 
   isAIThinking.value = true
 
+  const sessionId = getSessionId()
+
+  // 埋点 - 发送对话
+  await trackStep6Event('step6_chat_send', sessionId, {
+    messageLength: userMessage.length,
+    chatHistoryLength: chatMessages.value.length,
+  })
+
   try {
     const response = await fetch('/api/ai/analyze', {
       method: 'POST',
@@ -534,10 +772,10 @@ const sendChatMessage = async () => {
         userAnswer: userMessage,
         step: 6,
         stage: 1,
-        sessionId: getSessionId(),
+        sessionId: sessionId,
         context: {
           type: 'step6_chat_assistance',
-          currentPlan: studentFinalPlan.value, // 提供当前方案上下文
+          currentPlan: studentFinalPlan.value,
         },
       }),
     })
@@ -574,6 +812,14 @@ const scrollChatToBottom = () => {
 const generateReference = async () => {
   isGenerating.value = true
 
+  const sessionId = getSessionId()
+
+  // 埋点 - 开始生成
+  await trackStep6Event('step6_reference_generate', sessionId, {
+    isFirstGeneration: solutionVersion.value === 0,
+    currentWordCount: wordCount.value,
+  })
+
   try {
     const response = await fetch('/api/ai/generate-solution', {
       method: 'POST',
@@ -581,7 +827,7 @@ const generateReference = async () => {
         'Content-Type': 'application/json',
       },
       body: JSON.stringify({
-        sessionId: getSessionId(),
+        sessionId: sessionId,
       }),
     })
 
@@ -600,23 +846,66 @@ const generateReference = async () => {
 
 const regenerateReference = async () => {
   if (confirm('确定要重新生成参考方案吗？当前的参考方案将被替换。')) {
+    const sessionId = getSessionId()
+
+    // 埋点 - 重新生成
+    await trackStep6Event('step6_reference_regenerate', sessionId, {
+      previousVersion: solutionVersion.value,
+    })
+
     await generateReference()
   }
 }
 
-const copyReference = () => {
+const copyReference = async () => {
   navigator.clipboard.writeText(aiReferenceSolution.value)
+
+  // 标记已使用AI参考
+  hasUsedAIReference.value = true
+  aiReferenceUsageLog.value.push({
+    action: 'copy',
+    timestamp: new Date().toISOString(),
+    aiContentLength: aiReferenceSolution.value.length,
+  })
+
+  const sessionId = getSessionId()
+  await trackStep6Event('step6_reference_copy', sessionId, {
+    aiContentLength: aiReferenceSolution.value.length,
+    solutionVersion: solutionVersion.value,
+  })
+
   alert('📋 已复制到剪贴板')
 }
 
-const insertReference = () => {
+const insertReference = async () => {
+  const sessionId = getSessionId()
+  const previousWordCount = wordCount.value
+
   if (studentFinalPlan.value.trim()) {
     if (confirm('确定要插入参考方案吗？这会添加到当前内容之后。')) {
       studentFinalPlan.value += '\n\n' + aiReferenceSolution.value
+    } else {
+      return
     }
   } else {
     studentFinalPlan.value = aiReferenceSolution.value
   }
+
+  // 标记已使用AI参考
+  hasUsedAIReference.value = true
+  aiReferenceUsageLog.value.push({
+    action: 'insert',
+    timestamp: new Date().toISOString(),
+    aiContentLength: aiReferenceSolution.value.length,
+  })
+
+  // 埋点 - 插入参考方案
+  await trackStep6Event('step6_reference_insert', sessionId, {
+    previousWordCount,
+    newWordCount: wordCount.value,
+    aiContentLength: aiReferenceSolution.value.length,
+    solutionVersion: solutionVersion.value,
+  })
 }
 
 // ==================== 工具方法 ====================
@@ -668,7 +957,7 @@ ${s5?.content || '（Step5 尚未确认最终内容）'}
 }
 
 // ==================== 生命周期 ====================
-onMounted(() => {
+onMounted(async () => {
   // 恢复引导卡片状态
   const collapsed = simpleStorage.getItem<boolean>('step6_guidance_collapsed')
   if (collapsed !== null) {
@@ -687,30 +976,27 @@ onMounted(() => {
     studentFinalPlan.value = studentInitialDraft.value
   }
 
-  // 键盘事件
-  document.addEventListener('keydown', (e) => {
-    if (e.key === 'Escape') {
-      if (showAIAssistant.value) {
-        closeAIAssistant()
-      } else if (isFullscreen.value) {
-        toggleFullscreen()
-      }
-    }
-  })
+  // 记录初始内容
+  contentBeforeEdit.value = studentFinalPlan.value
+
+  // 🔥 埋点 - 进入页面
+  await trackEnter()
 })
 
-// 自动保存
-watch(studentFinalPlan, () => {
-  if (finalSubmitted.value) return
+onUnmounted(() => {
+  // 清理定时器
+  if (inputDebounceTimer.value) {
+    clearTimeout(inputDebounceTimer.value)
+  }
+})
 
-  const timer = setTimeout(() => {
-    simpleStorage.setItem('step6_draft', {
-      content: studentFinalPlan.value,
-      savedAt: new Date().toISOString(),
-    })
-  }, 2000)
-
-  return () => clearTimeout(timer)
+// ==================== 监听器 ====================
+// 监听 AI 参考方案生成，自动计算快速相似度
+watch(aiReferenceSolution, (newValue) => {
+  if (newValue && studentFinalPlan.value) {
+    const quickSim = quickSimilarityCheck(studentFinalPlan.value, newValue)
+    console.log(`📊 快速相似度检测: ${quickSim}%`)
+  }
 })
 </script>
 

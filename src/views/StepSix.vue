@@ -29,8 +29,8 @@
             <div class="process-item">
               <div class="step-number">2</div>
               <div class="step-content">
-                <h4>完善最终方案</h4>
-                <p>在编辑器中完善内容，可参考AI生成的方案</p>
+                <h4>完善方案</h4>
+                <p>在“我的方案”中编辑并完善内容，可点击”AI助手“，参考AI生成的方案</p>
               </div>
             </div>
 
@@ -92,17 +92,17 @@
     <transition name="slide-down">
       <div v-show="showDraftPreview" class="draft-preview-panel">
         <div class="panel-header">
-          <h4>📋 方案初稿（自动生成）</h4>
+          <h4>📋 方案初稿（仅查看，根据前4步确认的答案合成）</h4>
           <button @click="closeDraftPreview" class="close-btn">✕</button>
         </div>
 
         <div class="panel-content">
           <pre class="draft-text">{{ studentInitialDraft }}</pre>
-          <p class="draft-hint">💡 这是基于Step2-5的回答自动整理的初稿</p>
+          <p class="draft-hint">💡 这是基于Step2-5的确认的最终答案自动合成的初稿</p>
 
           <div class="panel-actions">
-            <button @click="copyDraftToEditor" class="action-btn">📋 复制到编辑器</button>
-            <button @click="closeDraftPreview" class="action-btn secondary">好的，我知道了</button>
+            <button @click="copyDraftToEditor" class="action-btn">📋 复制到”我的方案“</button>
+            <button @click="closeDraftPreview" class="action-btn secondary">暂时收起</button>
           </div>
         </div>
       </div>
@@ -113,7 +113,7 @@
       <div class="editor-container">
         <!-- 编辑器头部 -->
         <div class="editor-header">
-          <h3>✏️ 我的最终方案</h3>
+          <h3>✏️ 我的方案（请在此处编辑）</h3>
           <div class="editor-meta">
             <span class="word-count">{{ wordCount }} 字</span>
             <span v-if="lastSaveTime" class="last-save">💾 {{ lastSaveTime }}</span>
@@ -271,7 +271,7 @@
               <div class="reference-actions">
                 <button @click="copyReference" class="action-btn"><span>📋</span> 复制全文</button>
                 <button @click="insertReference" class="action-btn">
-                  <span>➕</span> 插入到编辑器
+                  <span>➕</span> 插入到“我的方案”
                 </button>
                 <button @click="regenerateReference" class="action-btn warning">
                   <span>🔄</span> 重新生成

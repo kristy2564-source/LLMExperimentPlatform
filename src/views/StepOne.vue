@@ -56,7 +56,7 @@ const scriptedMessages = [
   `🛠️ <strong>你可以使用的工具：</strong><br>
    💳 <strong>信息卡片</strong> - 查看教室结构图、环境数据和控制示例<br>
    💬 <strong>智能提问</strong> - 遇到困难时获得启发性问题引导<br>
-   📊 <strong>实时数据面板</strong> - 模拟教室状态（温度、湿度、人数等）`,
+   📊 <strong>数据面板</strong> - 教室状态（温度、湿度、人数等），在每个阶段的卡片当中`,
 
   `准备好成为智能节能专家了吗？让我们开始分析教室的通风节能问题吧！💪`,
 ]
@@ -168,7 +168,7 @@ onMounted(() => {
   width: 2.5rem;
   height: 2.5rem;
   border-radius: 50%;
-  background: linear-gradient(45deg, #4CAF50, #2196F3);
+  background: linear-gradient(45deg, #4caf50, #2196f3);
   display: flex;
   align-items: center;
   justify-content: center;
@@ -194,7 +194,7 @@ onMounted(() => {
 
 .message-content strong {
   font-weight: 700;
-  color: #2E7D32;
+  color: #2e7d32;
 }
 
 .start-task-area {
@@ -215,7 +215,7 @@ onMounted(() => {
 }
 
 .start-button {
-  background: linear-gradient(45deg, #4CAF50, #2196F3);
+  background: linear-gradient(45deg, #4caf50, #2196f3);
   border: none;
   border-radius: 30px;
   padding: 1rem 3rem;
@@ -233,7 +233,7 @@ onMounted(() => {
 .start-button:hover:not(:disabled) {
   transform: translateY(-3px);
   box-shadow: 0 8px 25px rgba(76, 175, 80, 0.4);
-  background: linear-gradient(45deg, #45a049, #1976D2);
+  background: linear-gradient(45deg, #45a049, #1976d2);
 }
 
 .start-button:active:not(:disabled) {
@@ -273,7 +273,9 @@ onMounted(() => {
   border-radius: 50%;
   background: rgba(255, 255, 255, 0.3);
   transform: translate(-50%, -50%);
-  transition: width 0.3s, height 0.3s;
+  transition:
+    width 0.3s,
+    height 0.3s;
 }
 
 .start-button:active:not(:disabled)::after {

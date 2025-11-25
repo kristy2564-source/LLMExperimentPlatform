@@ -601,6 +601,25 @@ interface Step3Data {
 // 🔥 从存储中恢复或初始化对话数据
 const rawStepData = simpleStorage.getStepData(3) as Step3Data | null
 
+// 🔥 防御性函数：确保 sessionId 始终有效
+const getValidSessionId = (rawData?: Step3Data | null): string => {
+  // 优先使用历史数据的 sessionId
+  if (rawData?.sessionId) {
+    console.log('✅ Step3: 使用历史 sessionId:', rawData.sessionId)
+    return rawData.sessionId
+  }
+
+  // 否则获取或创建新的
+  const id = simpleStorage.getSessionId()
+  if (!id) {
+    console.error('⚠️ Step3: sessionId 获取失败，创建新 session')
+    return simpleStorage.initSession()
+  }
+
+  console.log('✅ Step3: 使用全局 sessionId:', id)
+  return id
+}
+
 const conversationData = reactive<{
   sessionId: string
   conversationCount: number
@@ -611,7 +630,7 @@ const conversationData = reactive<{
 }>(
   rawStepData
     ? {
-        sessionId: rawStepData.sessionId,
+        sessionId: getValidSessionId(rawStepData), // 🔥 使用防御性函数
         conversationCount: rawStepData.conversationCount,
         stageCompletionStatus: rawStepData.stageCompletionStatus,
         messages: rawStepData.messages.map(
@@ -628,7 +647,7 @@ const conversationData = reactive<{
         isCompleted: rawStepData.isCompleted || false,
       }
     : {
-        sessionId: simpleStorage.getSessionId(),
+        sessionId: getValidSessionId(null), // 🔥 使用防御性函数
         conversationCount: 0,
         stageCompletionStatus: [false],
         messages: [],
@@ -636,6 +655,14 @@ const conversationData = reactive<{
         isCompleted: false,
       },
 )
+
+// 🔥 最终验证
+if (!conversationData.sessionId) {
+  console.error('❌ Step3: conversationData.sessionId 仍为空！强制获取...')
+  conversationData.sessionId = simpleStorage.getSessionId()
+}
+
+console.log('🔍 Step3 初始化完成，sessionId:', conversationData.sessionId)
 
 // 🔥 恢复帮助系统状态
 if (rawStepData?.helpSystem) {

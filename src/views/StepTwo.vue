@@ -610,17 +610,83 @@ interface APIResponse {
 // ==================== 基础状态 ====================
 const router = useRouter()
 
-// 对话数据
-const conversationData = reactive({
-  messages: [] as Message[],
-  conversationCount: 0,
-  currentStage: 1,
-  stageCompletionStatus: [false, false],
-  sessionId: '',
-  initialInstructions: {
-    1: '根据监测数据，你认为影响教室舒适度和能耗的关键因素有哪些？',
-    2: '基于这些关键因素，你会设计什么样的自动控制规则？',
-  } as { [key: number]: string },
+// 🔥 从存储恢复 Step2 数据（完整版本）
+const restoreStep2Data = () => {
+  const stepData = simpleStorage.getStep2Data()
+
+  if (stepData) {
+    console.log('📂 Step2: 从存储恢复数据', {
+      sessionId: stepData.sessionId,
+      currentStage: stepData.currentStage,
+      conversationCount: stepData.conversationCount,
+      messagesCount: stepData.messages.length,
+    })
+
+    return {
+      messages: stepData.messages.map(
+        (msg: StoredMessage): Message => ({
+          id: msg.id,
+          type: msg.type,
+          content: msg.content,
+          timestamp: new Date(msg.timestamp),
+          stage: msg.stage,
+          step: msg.step || 2,
+        }),
+      ),
+      conversationCount: stepData.conversationCount,
+      currentStage: stepData.currentStage,
+      stageCompletionStatus: stepData.stageCompletionStatus,
+      sessionId: stepData.sessionId || simpleStorage.getSessionId(), // 🔥 防御性获取
+      initialInstructions: stepData.initialInstructions || {
+        1: '根据监测数据，你认为影响教室舒适度和能耗的关键因素有哪些？',
+        2: '基于这些关键因素，你会设计什么样的自动控制规则？',
+      },
+    }
+  }
+
+  // 没有历史数据，创建新的
+  console.log('✨ Step2: 初始化新数据')
+  const sessionId = simpleStorage.getSessionId()
+
+  if (!sessionId) {
+    console.error('⚠️ Step2: sessionId 获取失败，创建新 session')
+    simpleStorage.initSession()
+  }
+
+  return {
+    messages: [] as Message[],
+    conversationCount: 0,
+    currentStage: 1,
+    stageCompletionStatus: [false, false],
+    sessionId: simpleStorage.getSessionId(),
+    initialInstructions: {
+      1: '根据监测数据，你认为影响教室舒适度和能耗的关键因素有哪些？',
+      2: '基于这些关键因素，你会设计什么样的自动控制规则？',
+    },
+  }
+}
+
+// 🔥 使用恢复函数初始化（关键修改！）
+const conversationData = reactive(restoreStep2Data())
+
+// 🔥 最终验证 sessionId
+if (!conversationData.sessionId) {
+  console.error('❌ Step2: conversationData.sessionId 为空！强制获取...')
+  conversationData.sessionId = simpleStorage.getSessionId()
+
+  if (!conversationData.sessionId) {
+    console.error('❌ Step2: 仍然无法获取 sessionId，创建新 session')
+    conversationData.sessionId = simpleStorage.initSession()
+  }
+}
+
+console.log('✅ Step2 初始化完成，sessionId:', conversationData.sessionId)
+console.log('📊 Step2 完整初始化数据:', {
+  sessionId: conversationData.sessionId,
+  currentStage: conversationData.currentStage,
+  conversationCount: conversationData.conversationCount,
+  messagesCount: conversationData.messages.length,
+  stageCompletionStatus: conversationData.stageCompletionStatus,
 })
 
 // UI状态
@@ -656,8 +722,8 @@ const stage2Snapshot = ref('')
 // 🔥 新增：临时保存相关
 const tempSaveStatus = ref('')
 const lastTempSaveTime = ref('')
-const isSaved = ref(false) // 🔥 新增：是否已保存
-const originalContent = ref('') // 🔥 新增：原始内容，用于对比
+const isSaved = ref(false)
+const originalContent = ref('')
 
 // 🔥 新增：计算属性 - 内容是否被修改
 const isContentModified = computed(() => {
@@ -723,12 +789,13 @@ const closeHelpLimitDialog = () => {
 const closeCycleLimitDialog = () => {
   showCycleLimitDialog.value = false
 }
+
 // ==================== 常量配置 ====================
 const MAX_CONVERSATIONS = 10
 
 const stageConfig = [
   {
-    label: '因素识别', // 🔥 添加这个
+    label: '因素识别',
     title: '阶段一：因素识别',
     description: '识别影响教室通风节能的关键因素',
     placeholder: '请输入你识别到的关键因素...',
@@ -736,7 +803,7 @@ const stageConfig = [
     submitText: '提交回答',
   },
   {
-    label: '控制设计', // 🔥 添加这个
+    label: '控制设计',
     title: '阶段二：控制设计',
     description: '设计自动控制的决策逻辑',
     placeholder: '请输入你的控制设计方案...',
@@ -954,9 +1021,7 @@ const closeConfirmDialog = async () => {
   showConfirmDialog.value = false
 }
 
-/**
- * 🔥 确认进入下一步（添加埋点）
- */
+// 🔥 确认进入下一步（添加埋点）
 const confirmNextStep = async () => {
   // 使用编辑后的内容作为最终快照
   finalAnswerSnapshot.value = editableFinalAnswer.value.trim()
@@ -1505,6 +1570,7 @@ async function getSmartHelp(
 }
 
 // ==================== 辅助函数 ====================
+
 const shouldAdvanceStage = (
   stage: number,
   conversationHistory: Message[],
@@ -1734,6 +1800,15 @@ const showContentSequentially = async () => {
 onMounted(async () => {
   console.log('🎬 Step2 组件已挂载')
 
+  // 🔥 最后的验证
+  if (!conversationData.sessionId) {
+    console.error('⚠️ Step2 onMounted: sessionId 仍为空，紧急修复')
+    conversationData.sessionId = simpleStorage.getSessionId()
+  }
+
+  console.log('🔍 Step2: 准备发送埋点，sessionId =', conversationData.sessionId)
+
+  // 埋点 - 进入 Step2
   await trackStep2Event(
     'step2_enter',
     conversationData.sessionId,
@@ -1756,9 +1831,15 @@ onMounted(async () => {
       Object.assign(helpSystem, stepDataWithHelp.helpSystem)
       console.log('💾 Step2 - 帮助系统状态已恢复:', helpSystem)
     }
+
+    // 🔥 恢复快照数据
+    if (stepData.finalAnswerSnapshot) {
+      finalAnswerSnapshot.value = stepData.finalAnswerSnapshot
+      finalAnswerConfirmed.value = stepData.finalAnswerConfirmed || false
+    }
   }
 
-  // 🔥 恢复快照数据（修正）
+  // 🔥 恢复快照数据（从确认数据中）
   const confirmedData = simpleStorage.getItem<{
     finalAnswerSnapshot: string
     finalAnswerConfirmed: boolean
@@ -1768,8 +1849,6 @@ onMounted(async () => {
     finalAnswerSnapshot.value = confirmedData.finalAnswerSnapshot || ''
     finalAnswerConfirmed.value = confirmedData.finalAnswerConfirmed || false
   }
-
-  conversationData.sessionId = getSessionId()
 
   addSystemInstruction(conversationData.currentStage)
   showContentSequentially()

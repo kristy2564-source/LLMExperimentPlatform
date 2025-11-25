@@ -8,35 +8,6 @@ interface StoredMessage {
   stage?: number
 }
 
-interface Step2Data {
-  conversationCount?: number
-  stageCompletionStatus?: boolean[]
-  messages?: StoredMessage[]
-  currentStage?: number
-
-  // 快照字段
-  finalAnswerSnapshot?: string
-  finalAnswerConfirmed?: boolean
-  stage1Snapshot?: string
-  stage2Snapshot?: string
-
-  // 临时保存字段
-  tempSnapshot?: {
-    content: string
-    stage1: string
-    stage2: string
-    savedAt: string
-    editCount?: number
-  }
-
-  // 编辑历史
-  editHistory?: Array<{
-    timestamp: string
-    contentLength: number
-    action: 'edit_start' | 'edit_change' | 'temp_save' | 'final_confirm'
-  }>
-}
-
 interface SnapshotData {
   finalAnswerSnapshot: string
   stage1Snapshot: string
@@ -98,6 +69,7 @@ interface GeneratedSolution {
 
 export interface StepData {
   stepNumber?: number
+  sessionId?: string
   conversationCount: number
   stageCompletionStatus: boolean[]
   messages: MessageType[]
@@ -119,6 +91,7 @@ export interface StepData {
 }
 
 interface Step2Data {
+  sessionId?: string
   conversationCount?: number
   stageCompletionStatus?: boolean[]
   messages?: StoredMessage[]
@@ -237,15 +210,37 @@ class SimpleStorage {
   // 保存步骤数据
   saveStepData(stepNumber: number, data: Partial<StepData>): void {
     const session = this.getSessionData()
-    if (!session) return
+    if (!session) {
+      console.error('⚠️ [simpleStorage] session 不存在，无法保存数据')
+      return
+    }
 
     const defaultStepData = this.createDefaultStepData(stepNumber)
     const existingData = session.steps[stepNumber.toString()] || defaultStepData
+
+    // 🔥 防御性代码：确保 sessionId 始终存在
+    // 优先级：传入的 data.sessionId > 已存在的 existingData.sessionId > 全局 session.sessionId
+    const sessionId = data.sessionId || existingData.sessionId || session.sessionId
+
+    if (!sessionId) {
+      console.error('❌ [simpleStorage] sessionId 为空，这不应该发生！')
+      console.error('调试信息:', {
+        stepNumber,
+        dataSessionId: data.sessionId,
+        existingSessionId: existingData.sessionId,
+        globalSessionId: session.sessionId,
+        timestamp: new Date().toISOString(),
+      })
+    } else {
+      console.log(`✅ [simpleStorage] Step${stepNumber} sessionId 已确认: ${sessionId}`)
+    }
 
     // 确保数组属性正确合并
     session.steps[stepNumber.toString()] = {
       ...existingData,
       ...data,
+      // 🔥 关键：强制设置 sessionId
+      sessionId: sessionId,
       // 确保这些属性始终是数组
       messages: data.messages || existingData.messages || [],
       conversationRecords: data.conversationRecords || existingData.conversationRecords || [],
@@ -253,6 +248,16 @@ class SimpleStorage {
     }
 
     this.saveSession(session)
+
+    // 🔥 验证保存后的数据
+    const savedData = session.steps[stepNumber.toString()]
+    if (!savedData.sessionId) {
+      console.error(`❌ [simpleStorage] Step${stepNumber} 保存后 sessionId 仍为空！`)
+    } else {
+      console.log(
+        `📝 [simpleStorage] Step${stepNumber} 数据已保存，sessionId: ${savedData.sessionId}`,
+      )
+    }
   }
 
   // ==================== 🔥 新增：Step2 方法 ====================

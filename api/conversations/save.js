@@ -50,8 +50,8 @@ export default async function handler(req, res) {
       step: conversationData.step,
       stage: conversationData.stage,
       experimentId,
-      // 🔥 新增：记录是否为快照
       isFinalSnapshot: isFinalSnapshot || false,
+      timestamp: new Date().toISOString(), // 🔥 新增时间戳
     })
 
     // 连接数据库
@@ -78,7 +78,11 @@ export default async function handler(req, res) {
 
     const result = await conversationCollection.insertOne(conversationDoc)
 
-    console.log('✅ [保存对话] 成功, ID:', result.insertedId)
+    console.log('✅ [保存对话] 成功, ID:', result.insertedId, {
+      createdAt: conversationDoc.createdAt.toISOString(), // 🔥 新增
+      updatedAt: conversationDoc.updatedAt.toISOString(), // 🔥 新增
+      sessionId: conversationDoc.sessionId, // 🔥 新增：方便追踪
+    })
 
     // 🔥 新增：如果是最终快照，额外记录日志
     if (isFinalSnapshot) {

@@ -1,5 +1,10 @@
 <template>
   <div class="step-four-container">
+    <!-- 🔥 新增：步骤锁定提示（仅在锁定时显示） -->
+    <div v-if="isStepLocked" class="step-locked-banner">
+      <span class="lock-icon">🔒</span>
+      <span>此步骤已确认答案并锁定，仅查看。</span>
+    </div>
     <!-- 对话轮次限制提示 -->
     <div
       v-if="conversationCount >= 4"
@@ -226,44 +231,42 @@
     <!-- 底部用户输入区域 -->
     <div class="input-section" :class="{ 'input-visible': showAnswerArea }">
       <div class="input-container">
+        <!-- 🔥 修复1：类名改为 user-input -->
         <textarea
           v-model="userAnswer"
-          :placeholder="inputPlaceholder"
-          class="user-input"
-          :disabled="isGenerating || isConversationLimitReached"
           @input="handleInput"
-          rows="5"
+          :placeholder="isStepLocked ? '步骤已锁定，无法编辑' : inputPlaceholder"
+          class="user-input"
+          rows="4"
+          :disabled="isStepLocked"
         ></textarea>
         <div class="input-toolbar">
+          <!-- 🔥 修复2：函数名改为 requestHelp -->
           <button
             class="help-button"
             @click="requestHelp"
-            :disabled="isGenerating || isConversationLimitReached || !canUseHelp"
-            :title="getHelpButtonTitle"
+            :disabled="isStepLocked || !canUseHelp"
+            :title="isStepLocked ? '步骤已锁定' : getHelpButtonTitle"
           >
-            <span class="help-icon">💬</span>
-            我想提问
-            <span v-if="canUseHelp" class="help-badge">
-              {{ helpSystem.maxCycles - helpSystem.totalCycles }}
+            <span class="help-icon">💡</span>
+            <span class="help-text">我想提问</span>
+            <span class="help-counter">
+              {{ helpSystem.totalCycles }}/{{ helpSystem.maxCycles }}
             </span>
           </button>
           <div class="action-buttons">
+            <!-- 提交按钮 -->
             <button
-              v-if="!isConversationLimitReached"
+              v-if="!answerSubmitted"
               class="submit-button"
               @click="submitAnswer"
-              :disabled="!canSubmit || isGenerating"
+              :disabled="isStepLocked || !canSubmit || isConversationLimitReached"
             >
-              <span v-if="isGenerating">
-                <span class="button-loading-dots">
-                  <span class="button-dot"></span>
-                  <span class="button-dot"></span>
-                  <span class="button-dot"></span>
-                </span>
-                测试中...
-              </span>
-              <span v-else>提交并测试</span>
+              <span class="button-icon">🚀</span>
+              <span>{{ isConversationLimitReached ? '已达上限' : '提交并测试' }}</span>
             </button>
+
+            <!-- 下一步按钮 -->
             <button
               class="next-button"
               @click="handleNextStep"
@@ -485,7 +488,7 @@
 </template>
 
 <script setup lang="ts">
-import { ref, computed, onMounted, nextTick, reactive, watch } from 'vue'
+import { ref, computed, onMounted, onBeforeUnmount, nextTick, reactive, watch } from 'vue'
 import { useRouter } from 'vue-router'
 import { simpleStorage } from '../../api/utils/simpleStorage'
 import { trackStep4Event } from '../../src/utils/tracking'
@@ -506,6 +509,9 @@ const helpSystem = reactive({
   },
   isInCycle: false,
 })
+
+// 🔥 新增：步骤锁定状态
+const isStepLocked = ref(false)
 
 // 计算属性：帮助功能是否可用
 const canUseHelp = computed(() => {
@@ -610,6 +616,7 @@ interface StepData {
   // 🔥 新增字段
   finalAnswerSnapshot?: string
   finalAnswerConfirmed?: boolean
+  lockedAt?: string // 🔥 新增：锁定时间戳
 }
 
 // 定义 event_data 的类型
@@ -685,6 +692,14 @@ const conversationData = reactive<{
       },
 )
 
+// 🔥 添加验证（可选但推荐）
+if (!conversationData.sessionId) {
+  console.error('❌ Step4: conversationData.sessionId 为空！')
+  conversationData.sessionId = simpleStorage.getSessionId()
+}
+
+console.log('🔍 Step4 初始化完成，sessionId:', conversationData.sessionId)
+
 // 🔥 恢复帮助系统状态
 if (rawStepData?.helpSystem) {
   Object.assign(helpSystem, rawStepData.helpSystem)
@@ -720,6 +735,13 @@ const conversationCount = computed(() => conversationData.conversationCount)
 const messages = computed(() => conversationData.messages)
 
 const canSubmit = computed(() => userAnswer.value.trim().length > 0)
+// 🔥 新增：是否允许编辑
+const canEdit = computed(() => !isStepLocked.value)
+
+// 🔥 新增：是否允许使用帮助（结合锁定状态）
+const canUseHelpWithLock = computed(() => {
+  return canEdit.value && canUseHelp.value
+})
 const isConversationLimitReached = computed(() => conversationCount.value >= MAX_CONVERSATIONS)
 
 const inputPlaceholder = computed(() => {
@@ -1138,9 +1160,15 @@ async function callEnhancedHelpAPI(
   }
 }
 
-// 🔥 修改：打开确认弹窗 - 初始化可编辑内容
+// 🔥 修改：打开确认弹窗 - 锁定后直接跳转
 const handleNextStep = () => {
-  // 初始化可编辑内容为当前快照
+  // 如果已经锁定，直接跳转到下一步
+  if (isStepLocked.value) {
+    router.push('/experiment/step5')
+    return
+  }
+
+  // 未锁定时，弹出编辑确认弹窗
   editableFinalAnswer.value = finalAnswerSnapshot.value
   showConfirmDialog.value = true
 }
@@ -1150,7 +1178,7 @@ const closeConfirmDialog = () => {
   // 不清空 editableFinalAnswer，保留用户的编辑
 }
 
-// 🔥 修改：确认进入下一步 - 保存编辑后的快照
+// 🔥 重写：确认进入下一步 - 增加数据库快照保存
 const confirmNextStep = async () => {
   // 使用编辑后的内容作为最终快照
   finalAnswerSnapshot.value = editableFinalAnswer.value.trim()
@@ -1163,7 +1191,21 @@ const confirmNextStep = async () => {
     confirmedAt: new Date().toISOString(),
   })
 
-  // 2. 埋点 - 点击继续下一步
+  // 2. 🔥 新增：保存带 isFinalSnapshot 标志的记录到数据库
+  await saveFinalSnapshotToDB({
+    sessionId: conversationData.sessionId,
+    step: 4,
+    stage: 1,
+    userInput: '[FINAL_SNAPSHOT]',
+    aiResponse: '',
+    conversationCount: conversationData.conversationCount,
+    timestamp: new Date(),
+    context: 'step4_final_confirmation',
+    isFinalSnapshot: true, // 🔥 关键字段
+    finalAnswerContent: finalAnswerSnapshot.value, // 🔥 完整内容
+  })
+
+  // 3. 埋点 - 点击继续下一步
   await trackStep4Event(
     'step4_next_step_click',
     conversationData.sessionId,
@@ -1176,11 +1218,19 @@ const confirmNextStep = async () => {
     },
   )
 
-  // 3. 保存到 storage（包含快照）
+  // 4. 保存到 storage（包含快照和锁定标记）
   saveToStorage()
 
-  // 4. 跳转下一步
-  goToNextStep()
+  // 5. 🔒 锁定当前步骤
+  isStepLocked.value = true
+  const updatedStepData = simpleStorage.getStepData(4) as StepData
+  if (updatedStepData) {
+    updatedStepData.lockedAt = new Date().toISOString()
+    simpleStorage.saveStepData(4, updatedStepData)
+  }
+
+  // 6. 跳转到下一步
+  router.push('/experiment/step5')
 }
 
 const goToNextStep = () => {
@@ -1370,6 +1420,46 @@ const saveConversationToDB = async (conversationDataPayload: ConversationData): 
   }
 }
 
+// 🔥 新增：保存最终快照到数据库
+const saveFinalSnapshotToDB = async (payload: {
+  sessionId: string
+  step: number
+  stage: number
+  userInput: string
+  aiResponse: string
+  conversationCount: number
+  timestamp: Date
+  context: string
+  isFinalSnapshot: boolean
+  finalAnswerContent: string
+}): Promise<void> => {
+  try {
+    const experimentId = localStorage.getItem('experimentId')
+    const studentName = localStorage.getItem('studentName')
+
+    const response = await fetch('/api/conversations/save', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'X-Experiment-ID': experimentId || '',
+      },
+      body: JSON.stringify({
+        ...payload,
+        experimentId,
+        studentName,
+      }),
+    })
+
+    if (response.ok) {
+      console.log(`✅ Step${payload.step} - 最终快照已保存到数据库`)
+    } else {
+      console.error(`❌ Step${payload.step} - 保存最终快照失败:`, response.statusText)
+    }
+  } catch (error) {
+    console.error(`❌ Step${payload.step} - 保存最终快照失败:`, error)
+  }
+}
+
 // 🔥 修改：保存到存储 - 包含快照
 const saveToStorage = () => {
   const stepData: StepData = {
@@ -1423,11 +1513,28 @@ const showContentSequentially = async () => {
   }
 }
 
-// 组件挂载时（添加埋点）
+// 🔥 重写：组件挂载时
 onMounted(async () => {
   console.log('🎬 Step4 组件已挂载')
 
-  // 埋点 - 进入 Step4
+  // ⚠️ 第一步：恢复帮助系统状态（最优先）
+  const stepData = simpleStorage.getStepData(4) as StepData | null
+  if (stepData?.helpSystem) {
+    Object.assign(helpSystem, stepData.helpSystem)
+    console.log('💾 Step4 - 帮助系统状态已恢复:', helpSystem)
+  }
+
+  // 🔥 第二步：检查是否已最终确认（锁定检查）
+  if (stepData?.finalAnswerConfirmed) {
+    finalAnswerConfirmed.value = true
+    finalAnswerSnapshot.value = stepData.finalAnswerSnapshot || ''
+
+    // 🔒 如果已确认，锁定步骤
+    isStepLocked.value = true
+    console.log('🔒 Step4 - 步骤已锁定，不可编辑')
+  }
+
+  // 第三步：埋点 - 进入 Step4
   await trackStep4Event(
     'step4_enter',
     conversationData.sessionId,
@@ -1437,10 +1544,33 @@ onMounted(async () => {
       initialStage: 1,
       hasHistory: conversationData.messages.length > 0,
       hasSnapshot: !!finalAnswerSnapshot.value,
+      isLocked: isStepLocked.value, // 🔥 新增：记录锁定状态
     },
   )
 
+  // 第四步：显示内容动画
   showContentSequentially()
+})
+
+// 🔥 新增：watch 监听帮助系统状态 - 自动保存
+watch(
+  () => ({ ...helpSystem }),
+  (newState) => {
+    if (!isStepLocked.value) {
+      // 只在未锁定时保存
+      saveHelpSystemState()
+      console.log('🔄 Step4 - 帮助系统状态自动保存:', newState)
+    }
+  },
+  { deep: true },
+)
+
+// 🔥 新增：组件卸载前保存状态
+onBeforeUnmount(() => {
+  if (!isStepLocked.value) {
+    saveHelpSystemState()
+    console.log('👋 Step4 - 组件卸载前保存帮助系统状态')
+  }
 })
 </script>
 
@@ -2193,6 +2323,7 @@ onMounted(async () => {
 }
 
 /* ==================== 帮助弹窗样式 ==================== */
+/* 修改帮助弹窗overlay */
 .help-dialog-overlay {
   position: fixed;
   top: 0;
@@ -2686,6 +2817,7 @@ onMounted(async () => {
 }
 
 /* ==================== 确认弹窗统一样式 ==================== */
+/* 修改确认弹窗overlay */
 .confirm-dialog-overlay {
   position: fixed;
   top: 0;
@@ -3154,5 +3286,99 @@ onMounted(async () => {
   .summary-item {
     font-size: 0.8rem;
   }
+}
+
+/* 🔥 新增：步骤锁定提示样式 */
+.step-locked-banner {
+  position: sticky;
+  top: 0;
+  z-index: 100;
+  background: linear-gradient(135deg, #fef3c7 0%, #fde68a 100%);
+  border: 2px solid #f59e0b;
+  border-radius: 0 0 12px 12px;
+  padding: 1rem 1.5rem;
+  margin-bottom: 1rem;
+  display: flex;
+  align-items: center;
+  gap: 1rem;
+  box-shadow: 0 4px 12px rgba(245, 158, 11, 0.3);
+  animation: slideDown 0.5s ease-out;
+}
+
+.lock-icon {
+  font-size: 1.5rem;
+  flex-shrink: 0;
+}
+
+.step-locked-banner span:last-child {
+  color: #92400e;
+  font-weight: 600;
+  font-size: 0.95rem;
+}
+
+@keyframes slideDown {
+  from {
+    transform: translateY(-100%);
+    opacity: 0;
+  }
+  to {
+    transform: translateY(0);
+    opacity: 1;
+  }
+}
+
+/* 禁用状态的输入框样式 */
+textarea:disabled {
+  background: #f1f5f9;
+  color: #94a3b8;
+  cursor: not-allowed;
+  opacity: 0.7;
+}
+
+/* 🔥 新增：步骤锁定提示样式 */
+.step-locked-banner {
+  position: sticky;
+  top: 0;
+  z-index: 100;
+  background: linear-gradient(135deg, #fef3c7 0%, #fde68a 100%);
+  border: 2px solid #f59e0b;
+  border-radius: 0 0 12px 12px;
+  padding: 1rem 1.5rem;
+  margin-bottom: 1rem;
+  display: flex;
+  align-items: center;
+  gap: 1rem;
+  box-shadow: 0 4px 12px rgba(245, 158, 11, 0.3);
+  animation: slideDown 0.5s ease-out;
+}
+
+.lock-icon {
+  font-size: 1.5rem;
+  flex-shrink: 0;
+}
+
+.step-locked-banner span:last-child {
+  color: #92400e;
+  font-weight: 600;
+  font-size: 0.95rem;
+}
+
+@keyframes slideDown {
+  from {
+    transform: translateY(-100%);
+    opacity: 0;
+  }
+  to {
+    transform: translateY(0);
+    opacity: 1;
+  }
+}
+
+/* 禁用状态的输入框样式 */
+textarea:disabled {
+  background: #f1f5f9;
+  color: #94a3b8;
+  cursor: not-allowed;
+  opacity: 0.7;
 }
 </style>

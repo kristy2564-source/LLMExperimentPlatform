@@ -1559,8 +1559,14 @@ const saveConversationToDB = async (
   }
 }
 
-const getSessionId = () => {
-  return simpleStorage.getSessionId()
+// 🔥 防御性函数：确保 sessionId 始终有效
+const getSessionId = (): string => {
+  const id = simpleStorage.getSessionId()
+  if (!id) {
+    console.error('⚠️ Step5: sessionId 获取失败，创建新 session')
+    return simpleStorage.initSession()
+  }
+  return id
 }
 
 // 生命周期
@@ -1586,8 +1592,16 @@ const showContentSequentially = async () => {
 onMounted(async () => {
   console.log('🎬 Step5 组件已挂载')
 
+  // 🔥 验证 sessionId
+  const sessionId = getSessionId()
+  if (!sessionId) {
+    console.error('❌ Step5: sessionId 为空！')
+  } else {
+    console.log('✅ Step5: sessionId 已确认:', sessionId)
+  }
+
   // 🔥 埋点 - 进入 Step5
-  await trackStep5Event('step5_enter', getSessionId(), conversationCount.value, {
+  await trackStep5Event('step5_enter', sessionId, conversationCount.value, {
     hasHistory: messages.value.length > 0,
   })
 

@@ -200,6 +200,9 @@ function flattenQuestionnaireData(questionnaireData, behaviorStats, sessionId, e
     experience_q8: questionnaireData.flatAnswers?.experience_q8 || null,
     experience_q9: questionnaireData.flatAnswers?.experience_q9 || null,
 
+    // 新增开放性反馈字段
+    feedback_open: questionnaireData.flatAnswers?.feedback_open || '',
+
     // === 分类得分统计 ===
     ability_score_total: questionnaireData.categoryScores?.ability?.total || 0,
     ability_score_average: questionnaireData.categoryScores?.ability?.average || 0,

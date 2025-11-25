@@ -250,9 +250,7 @@
           >
             <span class="help-icon">💡</span>
             <span class="help-text">我想提问</span>
-            <span class="help-counter">
-              {{ helpSystem.totalCycles }}/{{ helpSystem.maxCycles }}
-            </span>
+            <span class="help-counter"> {{ remainingCycles }}/{{ helpSystem.maxCycles }} </span>
           </button>
           <div class="action-buttons">
             <!-- 提交按钮 -->
@@ -357,7 +355,7 @@
 
           <div class="help-cycle-info">
             <span class="cycle-icon">🔄</span>
-            <span>剩余帮助次数：{{ helpSystem.maxCycles - helpSystem.totalCycles }} 次</span>
+            <span>剩余帮助次数：{{ remainingCycles }} 次</span>
             <span v-if="helpSystem.isInCycle" class="cycle-tip">
               （当前周期已使用
               {{ Object.values(helpSystem.currentCycleUsed).filter(Boolean).length }}/3）
@@ -751,6 +749,11 @@ const inputPlaceholder = computed(() => {
   return `请设计你的系统提示词，包含角色、任务、约束和输出要求...`
 })
 
+// 🔥 新增：计算剩余次数
+const remainingCycles = computed(() => {
+  return helpSystem.maxCycles - helpSystem.totalCycles
+})
+
 // 🔥 监听对话轮次变化（添加埋点）
 watch(conversationCount, async (newCount) => {
   if (newCount >= 4) {
@@ -885,81 +888,16 @@ const submitAnswer = async () => {
   }
 }
 
-// 打开帮助弹窗（添加埋点）
-function requestHelp() {
-  if (isGenerating.value || isConversationLimitReached.value) return
+// 🔥 修改：执行帮助请求 - 在这里才真正消耗次数
+async function executeHelp(mode: 'refine' | 'example' | 'custom', customQuestionText?: string) {
+  showHelpDialog.value = false
 
-  // 检查是否还能使用帮助功能
-  if (!canUseHelp.value) {
-    showHelpLimitDialog.value = true
-    return
-  }
-
-  // 如果不在周期中，开启新周期
+  // 🔥 关键修改：在这里开启新周期（如果需要）
   if (!helpSystem.isInCycle) {
     helpSystem.totalCycles++
     helpSystem.isInCycle = true
     console.log(`🆕 Step4 - 开启第 ${helpSystem.totalCycles} 个帮助周期`)
   }
-
-  // 检查当前周期是否还有可用模式
-  if (!hasAvailableModesInCycle.value) {
-    showCycleLimitDialog.value = true
-    return
-  }
-
-  // 埋点 - 点击帮助按钮
-  trackStep4Event(
-    'step4_help_button_click',
-    conversationData.sessionId,
-    1,
-    conversationData.conversationCount,
-    {
-      currentInputLength: userAnswer.value.length,
-      hasInput: userAnswer.value.length > 0,
-      helpCycle: helpSystem.totalCycles,
-      availableModes: Object.entries(availableHelpModes.value)
-        .filter(([_, available]) => available)
-        .map(([mode]) => mode)
-        .join(','),
-    },
-  )
-
-  showHelpDialog.value = true
-}
-
-// 关闭帮助弹窗
-function closeHelpDialog() {
-  showHelpDialog.value = false
-  helpMode.value = null
-  customQuestion.value = ''
-}
-
-// 选择帮助模式
-function selectHelpMode(mode: 'refine' | 'example' | 'custom') {
-  if (!availableHelpModes.value[mode]) {
-    console.log(`❌ Step4 - 模式 ${mode} 在当前周期已使用`)
-    return
-  }
-
-  helpMode.value = mode
-
-  if (mode !== 'custom') {
-    executeHelp(mode)
-  }
-}
-
-// 提交自定义问题
-function submitCustomQuestion() {
-  if (!customQuestion.value.trim()) {
-    return
-  }
-  executeHelp('custom', customQuestion.value)
-}
-
-// 执行帮助请求（添加埋点）
-async function executeHelp(mode: 'refine' | 'example' | 'custom', customQuestionText?: string) {
-  showHelpDialog.value = false
 
   // 标记该模式在当前周期已使用
   helpSystem.currentCycleUsed[mode] = true
@@ -1008,7 +946,7 @@ async function executeHelp(mode: 'refine' | 'example' | 'custom', customQuestion
         .filter(([_, used]) => used)
         .map(([mode]) => mode)
         .join(','),
-      remainingCycles: helpSystem.maxCycles - helpSystem.totalCycles,
+      remainingCycles: remainingCycles.value,
     },
   )
 
@@ -1050,7 +988,7 @@ async function executeHelp(mode: 'refine' | 'example' | 'custom', customQuestion
     console.error('❌ Step4 - 获取智能帮助失败:', error)
 
     const fallbackTexts: Record<string, string> = {
-      refine: '试着从多个角度分析提示词的设计，比如角色、任务、上下文等。',
+      refine: '试着从多个角度分析提示词的设计,比如角色、任务、上下文等。',
       example: '想想一个好的提示词应该包含哪些要素？比如角色设定、任务描述等。',
       custom: '根据你的问题，建议从提示词的核心要素和实际应用场景的角度来思考。',
     }
@@ -1064,6 +1002,73 @@ async function executeHelp(mode: 'refine' | 'example' | 'custom', customQuestion
     helpMode.value = null
     customQuestion.value = ''
   }
+}
+
+// 🔥 修改：打开帮助弹窗 - 不再消耗次数
+function requestHelp() {
+  if (isGenerating.value || isConversationLimitReached.value) return
+
+  // 检查是否还能使用帮助功能（基于总次数）
+  if (!canUseHelp.value) {
+    showHelpLimitDialog.value = true
+    return
+  }
+
+  // 🔥 修改：如果当前在周期中且所有模式都用完了，显示周期限制提示
+  if (helpSystem.isInCycle && !hasAvailableModesInCycle.value) {
+    showCycleLimitDialog.value = true
+    return
+  }
+
+  // 🔥 关键修改：不在这里增加 totalCycles，只打开弹窗
+  // 埋点 - 点击帮助按钮
+  trackStep4Event(
+    'step4_help_button_click',
+    conversationData.sessionId,
+    1,
+    conversationData.conversationCount,
+    {
+      currentInputLength: userAnswer.value.length,
+      hasInput: userAnswer.value.length > 0,
+      remainingCycles: remainingCycles.value,
+      isInCycle: helpSystem.isInCycle,
+      availableModes: Object.entries(availableHelpModes.value)
+        .filter(([_, available]) => available)
+        .map(([mode]) => mode)
+        .join(','),
+    },
+  )
+
+  showHelpDialog.value = true
+}
+
+// 关闭帮助弹窗
+function closeHelpDialog() {
+  showHelpDialog.value = false
+  helpMode.value = null
+  customQuestion.value = ''
+}
+
+// 选择帮助模式
+function selectHelpMode(mode: 'refine' | 'example' | 'custom') {
+  if (!availableHelpModes.value[mode]) {
+    console.log(`❌ Step4 - 模式 ${mode} 在当前周期已使用`)
+    return
+  }
+
+  helpMode.value = mode
+
+  if (mode !== 'custom') {
+    executeHelp(mode)
+  }
+}
+
+// 提交自定义问题
+function submitCustomQuestion() {
+  if (!customQuestion.value.trim()) {
+    return
+  }
+  executeHelp('custom', customQuestion.value)
 }
 
 // 调用增强的帮助API

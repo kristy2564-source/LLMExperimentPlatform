@@ -193,13 +193,13 @@
       <!-- 对话消息区域 -->
       <div class="chat-messages">
         <!-- 🔥 初始 AI 引导消息 - 根据当前阶段显示 -->
-        <div class="message ai" v-if="currentStageInstruction">
+        <div class="message ai" v-if="showPrompt">
           <div class="message-avatar">🤖</div>
           <div class="message-content">
             <div class="message-text">
-              <strong>{{ currentStage === 1 ? '阶段一：因素识别' : '阶段二：控制设计' }}</strong>
-              <br /><br />
-              {{ currentStageInstruction }}
+              问题识别和控制设计阶段：
+              我们先从第一步【问题识别】开始：你觉得影响教室闷热与耗电的<strong>关键因素</strong>有哪些？<br />
+              可以从环境、设备、人三个角度想想
             </div>
           </div>
         </div>
@@ -711,6 +711,9 @@ const showHelpDialog = ref(false)
 const helpMode = ref<'refine' | 'example' | 'custom' | null>(null)
 const customQuestion = ref('')
 const isRequestingHelp = ref(false)
+const showPrompt = ref(false) // 已有
+// 新增：确保只出现一次
+const promptShown = ref(false)
 
 // 🔥 新增：快照相关状态
 const finalAnswerSnapshot = ref('')
@@ -1850,8 +1853,21 @@ onMounted(async () => {
     finalAnswerConfirmed.value = confirmedData.finalAnswerConfirmed || false
   }
 
-  addSystemInstruction(conversationData.currentStage)
+  // ✅ 如果是第一次进入且处于阶段一，添加初始系统消息
+  //if (conversationData.currentStage === 1 && conversationData.messages.length === 0) {
+  //  addSystemInstruction(1)
+  //}
   showContentSequentially()
+
+  // 🔥 第一条 AI 口语引导（仅第一次）
+  if (conversationData.messages.length === 0 && !promptShown.value) {
+    addMessage(
+      'ai',
+      '问题识别和控制设计阶段：我们先从第一步开始，你觉得影响教室闷热与耗电的<strong>关键因素</strong>有哪些？<br />可以从环境、设备、人三个角度想想',
+      1,
+    )
+    promptShown.value = true
+  }
 })
 
 // ==================== 监听器 ====================

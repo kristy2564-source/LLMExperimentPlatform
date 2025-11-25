@@ -1250,6 +1250,8 @@ watch(aiReferenceSolution, (newValue) => {
   margin: 16px 24px;
   overflow: hidden;
   flex-shrink: 0;
+  max-height: 40vh; /* 限制最大高度为视口高度的40% */
+  overflow-y: auto; /* 超出部分可滚动 */
 }
 
 .panel-header {

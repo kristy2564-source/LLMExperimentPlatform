@@ -1,14 +1,13 @@
 <template>
   <div class="step-seven-container">
-    <!-- 后测问卷弹窗 - 保持不变 -->
+    <!-- 后测问卷弹窗 -->
     <div class="questionnaire-modal" v-if="showQuestionnaire">
       <div class="questionnaire-content">
         <div class="questionnaire-header">
           <div class="header-icon">📋</div>
           <h2>实验后测问卷</h2>
-          <div class="progress-indicator">
-            {{ currentQuestionIndex + 1 }} / {{ totalQuestions }}
-          </div>
+          <!-- ✅ 修复：使用新的进度变量 -->
+          <div class="progress-indicator">{{ answeredCount }} / {{ totalRequiredQuestions }}</div>
         </div>
 
         <div class="questionnaire-body">
@@ -51,7 +50,8 @@
                 <div class="stat-item">
                   <span class="stat-icon">📝</span>
                   <span class="stat-text"
-                    >共 <strong>{{ totalQuestions }}</strong> 题</span
+                    >共 <strong>{{ totalRequiredQuestions }}</strong> 题（必答）+
+                    <strong>1</strong> 题（选答）</span
                   >
                 </div>
                 <div class="stat-item">
@@ -62,118 +62,130 @@
 
               <p class="intro-note">请您在答题时尽量保持真实与直观的判断，感谢您的配合！</p>
             </div>
-            <button class="start-btn" @click="startQuestionnaire">开始答题</button>
+            <!-- ✅ 统一在Footer显示按钮 -->
           </div>
 
-          <!-- 问题展示页 -->
-          <div class="question-container" v-else>
-            <!-- 分类标题 -->
-            <div class="category-banner" v-if="currentQuestion.isFirstInCategory">
-              <div class="category-icon">{{ currentQuestion.categoryIcon }}</div>
-              <div class="category-info">
-                <h3>{{ currentQuestion.categoryTitle }}</h3>
-                <p>{{ currentQuestion.categoryDesc }}</p>
+          <!-- ⭐ 全部问题展示 -->
+          <div class="all-questions-container" v-else>
+            <!-- 进度提示 -->
+            <div class="progress-summary">
+              <div class="progress-bar-wrapper">
+                <div class="progress-text">
+                  已完成 {{ answeredCount }} / {{ totalRequiredQuestions }} 题
+                  <span v-if="!isQuestionnaireComplete" class="warning-text">
+                    ⚠️ 还有 {{ incompleteQuestions.length }} 题未完成
+                  </span>
+                  <span v-else class="complete-text">✓ 已全部完成</span>
+                </div>
+                <div class="progress-bar">
+                  <div
+                    class="progress-fill"
+                    :style="{ width: `${(answeredCount / totalRequiredQuestions) * 100}%` }"
+                  ></div>
+                </div>
               </div>
             </div>
 
-            <!-- 问题卡片 -->
-            <div class="question-card">
+            <!-- 循环渲染所有问题 -->
+            <div
+              v-for="(question, index) in questions"
+              :key="question.id"
+              :id="`question-${question.id}`"
+              class="question-card"
+              :class="{
+                answered: isQuestionAnswered(question.id),
+                unanswered: !isQuestionAnswered(question.id) && question.type !== 'textarea',
+                'is-textarea': question.type === 'textarea',
+              }"
+            >
+              <!-- 分类标题 -->
+              <div v-if="question.isFirstInCategory" class="category-header">
+                <div class="category-icon">{{ question.categoryIcon }}</div>
+                <div class="category-info">
+                  <h3>{{ question.categoryTitle }}</h3>
+                  <p>{{ question.categoryDesc }}</p>
+                </div>
+              </div>
+
+              <!-- 题目编号和内容 -->
               <div class="question-header">
-                <span class="question-number">第 {{ currentQuestionIndex + 1 }} 题</span>
-                <span class="question-category">{{ currentQuestion.category }}</span>
+                <span class="question-number">第 {{ index + 1 }} 题</span>
+                <span v-if="isQuestionAnswered(question.id)" class="answered-badge">✓ 已作答</span>
+                <span v-else-if="question.required !== false" class="unanswered-badge"
+                  >⚠️ 未作答</span
+                >
+                <span v-else class="optional-badge">选填</span>
               </div>
 
-              <div class="question-text">
-                {{ currentQuestion.question }}
+              <div class="question-content">
+                <p class="question-text">{{ question.question }}</p>
               </div>
 
-              <!-- Likert量表选项 -->
-              <div class="likert-scale">
-                <div class="scale-labels">
-                  <span class="scale-label-start">非常不同意</span>
-                  <span class="scale-label-end">非常同意</span>
-                </div>
-
-                <div class="scale-options">
-                  <label
-                    v-for="value in [1, 2, 3, 4, 5]"
-                    :key="value"
-                    class="scale-option"
-                    :class="{
-                      selected: answers[currentQuestion.id] === value,
-                      'scale-negative': value <= 2,
-                      'scale-neutral': value === 3,
-                      'scale-positive': value >= 4,
-                    }"
-                  >
-                    <input
-                      type="radio"
-                      :name="`question-${currentQuestion.id}`"
-                      :value="value"
-                      v-model="answers[currentQuestion.id]"
-                      @change="onAnswerChange"
-                    />
-                    <span class="scale-value">{{ value }}</span>
-                    <span class="scale-label">{{ getScaleLabel(value) }}</span>
-                  </label>
+              <!-- 选择题 - 五点量表 -->
+              <div v-if="question.type !== 'textarea'" class="answer-options">
+                <div
+                  v-for="option in 5"
+                  :key="option"
+                  class="option-item"
+                  :class="{ selected: answers[question.id] === option }"
+                  @click="answers[question.id] = option"
+                >
+                  <div class="option-radio">
+                    <span v-if="answers[question.id] === option">●</span>
+                    <span v-else>○</span>
+                  </div>
+                  <div class="option-label">
+                    <div class="option-number">{{ option }}</div>
+                    <div class="option-text">{{ getScaleLabel(option) }}</div>
+                  </div>
                 </div>
               </div>
-            </div>
 
-            <!-- 答题进度 -->
-            <div class="answer-progress">
-              <div class="progress-text">已完成 {{ answeredCount }} / {{ totalQuestions }} 题</div>
-              <div class="progress-bar">
-                <div class="progress-fill" :style="{ width: progressPercentage + '%' }"></div>
+              <!-- 开放性问题 - 文本框 -->
+              <div v-else class="textarea-container">
+                <textarea
+                  v-model="answers[question.id]"
+                  :placeholder="question.placeholder || '请输入您的想法...'"
+                  class="feedback-textarea"
+                  rows="6"
+                ></textarea>
+                <!-- ✅ 修复：显式转换为字符串 -->
+                <div class="char-count">
+                  已输入 {{ String(answers[question.id] || '').length }} 字
+                </div>
               </div>
-            </div>
-
-            <!-- 导航按钮 -->
-            <div class="question-navigation">
-              <button
-                class="nav-btn prev-btn"
-                @click="previousQuestion"
-                :disabled="currentQuestionIndex === 0"
-              >
-                <span class="btn-icon">←</span>
-                上一题
-              </button>
-
-              <button
-                class="nav-btn next-btn"
-                @click="nextQuestion"
-                :disabled="!answers[currentQuestion.id]"
-                v-if="currentQuestionIndex < totalQuestions - 1"
-              >
-                下一题
-                <span class="btn-icon">→</span>
-              </button>
-
-              <button
-                class="nav-btn submit-btn"
-                @click="submitQuestionnaire"
-                :disabled="!isQuestionnaireComplete"
-                v-else
-              >
-                <span class="btn-icon">✓</span>
-                提交问卷
-              </button>
             </div>
           </div>
+        </div>
+
+        <!-- 底部按钮 -->
+        <div class="questionnaire-footer">
+          <button v-if="!questionnaireStarted" @click="startQuestionnaire" class="btn-primary">
+            开始作答
+          </button>
+          <button
+            v-else
+            @click="submitQuestionnaire"
+            class="btn-submit"
+            :class="{ disabled: !isQuestionnaireComplete }"
+          >
+            <span v-if="isQuestionnaireComplete">✓ 提交问卷</span>
+            <span v-else>⚠️ 完成所有题目后提交 ({{ incompleteQuestions.length }}题未答)</span>
+          </button>
         </div>
       </div>
     </div>
 
-    <!-- 对话滚动区域 -->
+    <!-- ✅ 关键修复：对话滚动区域 - 使用 v-show 而不是 v-if -->
     <div class="chat-scroll-area" ref="chatScrollArea" v-show="!showQuestionnaire">
-      <!-- 信息卡片区域 - 保持不变 -->
+      <!-- 信息卡片区域 -->
       <div class="info-card-section">
         <div class="info-card" :class="{ 'card-visible': showInfoCard }">
           <div class="card-header">
             <div class="card-icon">🎯</div>
             <div class="card-title">
               经过前面几个阶段的分析和方案制定，你已经完成了教室智能通风节能方案的设计。
-              从最初发现40人教室35℃高温问题，到制定节能策略，再到应对60人考试的极端情况，
+              从最初发现40人教室35℃高温问题,到制定节能策略，再到应对60人考试的极端情况，
               整个过程体现了跨学科思维和问题解决能力。现在让我们回顾整个学习过程...
             </div>
           </div>
@@ -264,7 +276,7 @@
         </div>
       </div>
 
-      <!-- ⭐ 对话消息区域（统一渲染所有消息） -->
+      <!-- 对话消息区域 -->
       <div class="chat-messages">
         <!-- 初始 AI 引导消息 -->
         <div class="message ai" v-if="showPrompt">
@@ -279,9 +291,9 @@
           </div>
         </div>
 
-        <!-- ⭐ 统一的消息循环 -->
+        <!-- 统一的消息循环 -->
         <div v-for="message in messages" :key="message.id" :class="['message', message.type]">
-          <!-- ========== 普通消息（AI / User） ========== -->
+          <!-- 普通消息（AI / User） -->
           <template v-if="message.type !== 'system'">
             <div class="message-avatar">
               {{ message.type === 'ai' ? '🤖' : '👤' }}
@@ -294,20 +306,18 @@
             </div>
           </template>
 
-          <!-- ========== 系统消息：评估生成进度 ========== -->
+          <!-- 系统消息：评估生成进度 -->
           <template v-else-if="message.systemType === 'evaluation-progress'">
             <div class="message-avatar">📊</div>
             <div class="message-content evaluation-progress-card">
               <div class="evaluation-generating">
                 <h3>🎯 正在生成你的个性化评估报告</h3>
 
-                <!-- 静态警告提示 -->
                 <div class="generating-warning">
                   <span class="warning-icon">⚠️</span>
                   <span class="warning-text">请耐心等待，<strong>请勿刷新页面</strong></span>
                 </div>
 
-                <!-- 进度环 -->
                 <div class="progress-ring-container">
                   <svg class="progress-ring-svg" width="140" height="140" viewBox="0 0 140 140">
                     <circle
@@ -344,7 +354,6 @@
                   </div>
                 </div>
 
-                <!-- 分步指示器 -->
                 <div class="evaluation-steps">
                   <div
                     class="step-item"
@@ -383,7 +392,7 @@
             </div>
           </template>
 
-          <!-- ========== 系统消息：评估完成卡片 ========== -->
+          <!-- 系统消息：评估完成卡片 -->
           <template v-else-if="message.systemType === 'evaluation-complete'">
             <div class="message-avatar">✅</div>
             <div class="message-content evaluation-complete-card">
@@ -402,8 +411,12 @@
       </div>
     </div>
 
-    <!-- 底部用户输入区域 - 保持不变 -->
-    <div class="input-section" :class="{ 'input-visible': showAnswerArea }">
+    <!-- 底部用户输入区域 -->
+    <div
+      class="input-section"
+      :class="{ 'input-visible': showAnswerArea }"
+      v-show="!showQuestionnaire"
+    >
       <div class="input-container">
         <textarea
           v-model="userAnswer"
@@ -432,7 +445,7 @@
       </div>
     </div>
 
-    <!-- ⭐ 系统测评反馈弹窗（保持旧版不变，只在点击按钮时显示） -->
+    <!-- 系统测评反馈弹窗 -->
     <div class="evaluation-modal" v-if="showEvaluationModal" @click="closeEvaluationModal">
       <div class="evaluation-modal-content" @click.stop>
         <div class="evaluation-header">
@@ -442,7 +455,6 @@
         </div>
 
         <div class="evaluation-body">
-          <!-- 评估结果 -->
           <div v-if="evaluationGenerated">
             <!-- 能力等级评估 -->
             <div class="capability-assessment" v-if="capabilityAssessments.length > 0">
@@ -529,7 +541,6 @@ interface Message {
   type: 'ai' | 'user' | 'system'
   content: string
   timestamp: Date
-  // ⭐ 新增：系统消息的子类型
   systemType?: 'evaluation-progress' | 'evaluation-complete'
 }
 
@@ -544,7 +555,7 @@ interface PersonalizedSuggestion {
   level: number
   content: string
 }
-// ⭐ 新增：存储消息的接口
+
 interface StoredMessage {
   id: string
   type: string
@@ -554,11 +565,10 @@ interface StoredMessage {
   systemType?: string
 }
 
-// ⭐ 修改：使用 StoredMessage
 interface StepData {
   conversationCount?: number
   stageCompletionStatus?: boolean[]
-  messages?: StoredMessage[] // ⭐ 改用 StoredMessage
+  messages?: StoredMessage[]
   currentStage?: number
   isCompleted?: boolean
   questionnaireCompleted?: boolean
@@ -569,8 +579,8 @@ interface StepData {
 // ========== 问卷状态 ==========
 const showQuestionnaire = ref(true)
 const questionnaireStarted = ref(false)
-const currentQuestionIndex = ref(0)
-const answers = reactive<Record<string, number>>({})
+// ✅ 修复：支持字符串和数字类型
+const answers = reactive<Record<string, number | string>>({})
 const questionnaireStartTime = ref(0)
 
 // ========== 原有Step7状态 ==========
@@ -584,19 +594,17 @@ const isGeneratingEvaluation = ref(false)
 const evaluationGenerated = ref(false)
 const conversationHistory = ref<string[]>([])
 
-// 使用明确的类型定义
 const capabilityAssessments = reactive<CapabilityAssessment[]>([])
 const personalizedSuggestions = reactive<PersonalizedSuggestion[]>([])
 const messages = reactive<Message[]>([])
 
 const chatScrollArea = ref<HTMLElement | null>(null)
-
 const userAnswer = ref('')
 const conversationRound = ref(1)
 
 // ========== 问卷题目定义 ==========
 const questions = ref([
-  // === 第一部分：能力问卷 ===
+  // === 第一部分：能力问卷 (12题) ===
   {
     id: 'ability_q1',
     category: '能力问卷',
@@ -662,7 +670,7 @@ const questions = ref([
     question: '如果发现问题，我会重新评估并修改我的思路。',
   },
 
-  // === 第二部分：人机协作模式问卷 ===
+  // === 第二部分：人机协作模式问卷 (12题) ===
   {
     id: 'collaboration_q1',
     category: '人机协作模式',
@@ -728,7 +736,7 @@ const questions = ref([
     question: '当AI的建议不适合时，我会果断放弃它。',
   },
 
-  // === 第三部分：使用体验问卷 ===
+  // === 第三部分：使用体验问卷 (9题) ===
   {
     id: 'experience_q1',
     category: '使用体验',
@@ -778,17 +786,48 @@ const questions = ref([
     category: '使用体验',
     question: '如果有机会，我愿意在未来的学习任务中继续使用智能体。',
   },
+
+  // === 第四部分：开放性反馈 (1题) ===
+  {
+    id: 'feedback_open',
+    category: '开放性反馈',
+    categoryTitle: '（四）开放性反馈',
+    categoryDesc: '如果您在使用过程中遇到任何问题或建议，欢迎在此反馈，畅所欲言',
+    categoryIcon: '💬',
+    isFirstInCategory: true,
+    question: '您的宝贵意见',
+    type: 'textarea',
+    placeholder: '请输入您的反馈、建议或遇到的问题...',
+    required: false,
+  },
 ])
 
 // ========== 计算属性 ==========
 const totalQuestions = computed(() => questions.value.length)
-const currentQuestion = computed(() => questions.value[currentQuestionIndex.value])
-const answeredCount = computed(() => Object.keys(answers).length)
-const progressPercentage = computed(() => (answeredCount.value / totalQuestions.value) * 100)
-const isQuestionnaireComplete = computed(() => answeredCount.value === totalQuestions.value)
 const canSubmit = computed(() => userAnswer.value.trim().length > 0)
 
+// ✅ 新增计算属性
+const totalRequiredQuestions = computed(() => {
+  return questions.value.filter((q) => q.type !== 'textarea').length
+})
+
+const answeredCount = computed(() => {
+  return questions.value.filter((q) => q.type !== 'textarea' && answers[q.id] !== undefined).length
+})
+
+const isQuestionnaireComplete = computed(() => {
+  return answeredCount.value >= totalRequiredQuestions.value
+})
+
+const incompleteQuestions = computed(() => {
+  return questions.value.filter((q) => q.type !== 'textarea' && !answers[q.id]).map((q) => q.id)
+})
+
 // ========== 问卷相关方法 ==========
+const isQuestionAnswered = (questionId: string) => {
+  return answers[questionId] !== undefined
+}
+
 const getScaleLabel = (value: number): string => {
   const labels = ['', '非常不同意', '不同意', '一般', '同意', '非常同意']
   return labels[value] || ''
@@ -799,23 +838,36 @@ const startQuestionnaire = () => {
   questionnaireStartTime.value = Date.now()
 }
 
-const onAnswerChange = () => {
-  // 答案改变时可以添加自动保存逻辑
-}
+const highlightIncompleteQuestions = () => {
+  if (incompleteQuestions.value.length === 0) return
 
-const nextQuestion = () => {
-  if (currentQuestionIndex.value < totalQuestions.value - 1) {
-    currentQuestionIndex.value++
+  const firstIncompleteId = incompleteQuestions.value[0]
+  const questionElement = document.getElementById(`question-${firstIncompleteId}`)
+
+  if (questionElement) {
+    questionElement.scrollIntoView({
+      behavior: 'smooth',
+      block: 'center',
+    })
+
+    questionElement.classList.add('highlight-incomplete')
+
+    setTimeout(() => {
+      questionElement.classList.remove('highlight-incomplete')
+    }, 3000)
   }
 }
 
-const previousQuestion = () => {
-  if (currentQuestionIndex.value > 0) {
-    currentQuestionIndex.value--
+const validateBeforeSubmit = () => {
+  if (!isQuestionnaireComplete.value) {
+    alert(`还有 ${incompleteQuestions.value.length} 道题未完成，请完成所有题目后再提交！`)
+    highlightIncompleteQuestions()
+    return false
   }
+  return true
 }
 
-const calculateCategoryScores = (answersData: Record<string, number>) => {
+const calculateCategoryScores = (answersData: Record<string, number | string>) => {
   const categories = {
     ability: { total: 0, count: 0, average: 0 },
     collaboration: { total: 0, count: 0, average: 0 },
@@ -824,7 +876,7 @@ const calculateCategoryScores = (answersData: Record<string, number>) => {
 
   questions.value.forEach((q) => {
     const answer = answersData[q.id]
-    if (answer) {
+    if (typeof answer === 'number') {
       if (q.id.startsWith('ability_')) {
         categories.ability.total += answer
         categories.ability.count++
@@ -838,7 +890,6 @@ const calculateCategoryScores = (answersData: Record<string, number>) => {
     }
   })
 
-  // 计算平均分
   Object.keys(categories).forEach((key) => {
     const cat = categories[key as keyof typeof categories]
     cat.average = cat.count > 0 ? Math.round((cat.total / cat.count) * 100) / 100 : 0
@@ -854,8 +905,7 @@ const generateExperimentId = () => {
 }
 
 const submitQuestionnaire = async () => {
-  if (!isQuestionnaireComplete.value) {
-    alert('请完成所有题目后再提交')
+  if (!validateBeforeSubmit()) {
     return
   }
 
@@ -879,7 +929,8 @@ const submitQuestionnaire = async () => {
         category: q.category,
         questionText: q.question,
         answerValue: answers[q.id],
-        answerLabel: getScaleLabel(answers[q.id]),
+        answerLabel:
+          typeof answers[q.id] === 'number' ? getScaleLabel(answers[q.id] as number) : '',
         answeredAt: new Date().toISOString(),
       })),
       flatAnswers: { ...answers },
@@ -899,15 +950,6 @@ const submitQuestionnaire = async () => {
       },
     }
 
-    console.log('📤 准备提交问卷数据:', questionnaireData)
-    console.log('📍 请求URL: /api/questionnaire/save')
-    console.log('🔧 请求方法: POST')
-    console.log('📋 请求头:', {
-      'Content-Type': 'application/json',
-      'X-Experiment-ID': experimentId,
-      'X-Session-ID': sessionId,
-    })
-
     const response = await fetch('/api/questionnaire/save', {
       method: 'POST',
       headers: {
@@ -918,17 +960,10 @@ const submitQuestionnaire = async () => {
       body: JSON.stringify(questionnaireData),
     })
 
-    console.log('📥 响应状态:', response.status)
-    console.log('📥 响应状态文本:', response.statusText)
-    console.log('📥 响应头:', Object.fromEntries(response.headers.entries()))
-
-    // 先检查响应状态
     if (!response.ok) {
-      // 尝试读取错误信息
       let errorMessage = `HTTP ${response.status}: ${response.statusText}`
       try {
         const errorText = await response.text()
-        console.error('❌ 错误响应内容:', errorText)
         if (errorText) {
           try {
             const errorData = JSON.parse(errorText)
@@ -943,20 +978,15 @@ const submitQuestionnaire = async () => {
       throw new Error(errorMessage)
     }
 
-    // 检查响应是否有内容
     const contentType = response.headers.get('content-type')
-    console.log('📝 Content-Type:', contentType)
-
     if (!contentType || !contentType.includes('application/json')) {
       const text = await response.text()
-      console.error('❌ 非JSON响应:', text)
       throw new Error('服务器返回了非JSON格式的响应')
     }
 
     const result = await response.json()
     console.log('✅ 问卷提交成功:', result)
 
-    // 保存到本地存储
     const stepData = simpleStorage.getStepData(7) || {
       conversationCount: 0,
       stageCompletionStatus: [false, false, false],
@@ -978,7 +1008,6 @@ const submitQuestionnaire = async () => {
   } catch (error) {
     const errorMessage = error instanceof Error ? error.message : '未知错误'
     console.error('❌ 提交问卷失败:', error)
-    console.error('❌ 错误堆栈:', error instanceof Error ? error.stack : 'No stack trace')
     alert(
       `问卷提交失败：${errorMessage}\n\n请检查：\n1. 网络连接是否正常\n2. 浏览器控制台是否有更多错误信息\n3. 尝试刷新页面后重试`,
     )
@@ -1009,19 +1038,17 @@ const showSuccessMessage = () => {
 }
 
 // ========== 原有Step7方法 ==========
-// ========== 新增：进度环计算属性 ==========
 const progressCircumference = computed(() => 2 * Math.PI * 60)
 const progressDashOffset = computed(() => {
   return progressCircumference.value * (1 - evaluationProgress.value / 100)
 })
 
-// ⭐ 新增：添加系统消息（用于进度和完成卡片）
 const addSystemMessage = (systemType: 'evaluation-progress' | 'evaluation-complete') => {
   const messageId = `system_${systemType}_${Date.now()}`
   const message: Message = {
     id: messageId,
     type: 'system',
-    content: '', // 系统消息不需要文本内容
+    content: '',
     timestamp: new Date(),
     systemType: systemType,
   }
@@ -1035,7 +1062,6 @@ const addSystemMessage = (systemType: 'evaluation-progress' | 'evaluation-comple
   console.log(`✅ 添加系统消息: ${systemType}`)
 }
 
-// ⭐ 新增：移除系统消息
 const removeSystemMessage = (systemType: 'evaluation-progress' | 'evaluation-complete') => {
   const index = messages.findIndex((msg) => msg.systemType === systemType)
   if (index !== -1) {
@@ -1044,7 +1070,6 @@ const removeSystemMessage = (systemType: 'evaluation-progress' | 'evaluation-com
   }
 }
 
-// ⭐ 新增：打开评估弹窗
 const openEvaluationModal = () => {
   showEvaluationModal.value = true
   console.log('📊 打开评估结果弹窗')
@@ -1057,7 +1082,6 @@ const restoreFromStorage = () => {
     messages.length = 0
     if (stepData.messages) {
       stepData.messages.forEach((msg) => {
-        // ⭐ 不需要类型断言了
         messages.push({
           id: msg.id,
           type: msg.type as 'ai' | 'user' | 'system',
@@ -1082,7 +1106,7 @@ const saveToStorage = () => {
       content: msg.content,
       timestamp: msg.timestamp.toISOString(),
       stage: 1,
-      systemType: msg.systemType, // ⭐ 新增：保存 systemType
+      systemType: msg.systemType,
     })),
     currentStage: 1,
     isCompleted: answerSubmitted.value && showEvaluationModal.value,
@@ -1095,7 +1119,6 @@ const handleInput = () => {
   // 输入处理
 }
 
-// ⭐ 修改：提交答案后触发评估生成
 const submitAnswer = async () => {
   if (!canSubmit.value) return
 
@@ -1118,18 +1141,10 @@ const submitAnswer = async () => {
     answerSubmitted.value = true
     saveToStorage()
 
-    // ⭐ 修改：自动触发评估生成流程
     setTimeout(async () => {
-      // 1. 添加评估进度卡片
       addSystemMessage('evaluation-progress')
-
-      // 2. 开始生成评估
       await generateEvaluationFromHistory()
-
-      // 3. 移除进度卡片
       removeSystemMessage('evaluation-progress')
-
-      // 4. 添加评估完成卡片（带按钮）
       addSystemMessage('evaluation-complete')
     }, 1500)
 
@@ -1143,12 +1158,10 @@ const submitAnswer = async () => {
   }
 }
 
-// ⭐ 修改：生成评估（不再控制弹窗显示）
 const generateEvaluationFromHistory = async () => {
   isGeneratingEvaluation.value = true
   evaluationGenerated.value = false
 
-  // 启动进度模拟
   evaluationProgress.value = 0
   evaluationStage.value = 0
   startProgressSimulation()
@@ -1156,8 +1169,6 @@ const generateEvaluationFromHistory = async () => {
   try {
     const sessionId = simpleStorage.getSessionId()
     const userReflection = messages.filter((msg) => msg.type === 'user').pop()?.content || ''
-
-    console.log('开始生成评估，sessionId:', sessionId)
 
     const response = await fetch('/api/ai/generate-evaluation', {
       method: 'POST',
@@ -1177,8 +1188,6 @@ const generateEvaluationFromHistory = async () => {
     }
 
     const evaluationData = await response.json()
-    console.log('收到评估数据:', evaluationData)
-
     completeProgressSimulation()
 
     capabilityAssessments.length = 0
@@ -1211,41 +1220,19 @@ const generateEvaluationFromHistory = async () => {
     )
 
     evaluationGenerated.value = true
-
-    // ⭐ 移除：不再自动打开弹窗
-    // setTimeout(() => {
-    //   showEvaluationModal.value = true
-    // }, 1000)
   } catch (error) {
     console.error('生成评估失败:', error)
-
     completeProgressSimulation()
 
-    // 使用 fallback 数据
+    // Fallback 数据
     capabilityAssessments.length = 0
     personalizedSuggestions.length = 0
 
     capabilityAssessments.push(
-      {
-        name: '问题识别与信息整合',
-        level: 2,
-        description: '能识别任务条件并主动提取多源信息',
-      },
-      {
-        name: '策略制定与执行',
-        level: 2,
-        description: '能给出两个以上策略，并考虑情境变化调整',
-      },
-      {
-        name: '元认知与反思',
-        level: 1,
-        description: '有自我评价意识，但缺乏结构化表达',
-      },
-      {
-        name: '综合能力协同应用',
-        level: 3,
-        description: '方案中体现多学科整合，表达具有创新性',
-      },
+      { name: '问题识别与信息整合', level: 2, description: '能识别任务条件并主动提取多源信息' },
+      { name: '策略制定与执行', level: 2, description: '能给出两个以上策略，并考虑情境变化调整' },
+      { name: '元认知与反思', level: 1, description: '有自我评价意识，但缺乏结构化表达' },
+      { name: '综合能力协同应用', level: 3, description: '方案中体现多学科整合，表达具有创新性' },
     )
 
     personalizedSuggestions.push(
@@ -1274,7 +1261,6 @@ const generateEvaluationFromHistory = async () => {
   }
 }
 
-// ⭐ 新增：进度模拟相关方法
 const startProgressSimulation = () => {
   evaluationStage.value = 1
   evaluationStatusText.value = '正在收集你的学习数据...'
@@ -1306,7 +1292,6 @@ const completeProgressSimulation = () => {
   evaluationProgress.value = 100
   evaluationStage.value = 3
   evaluationStatusText.value = '评估报告生成完成！'
-
   stopProgressSimulation()
 }
 
@@ -1351,61 +1336,22 @@ const showCelebrationAnimation = () => {
   `
 
   celebrationOverlay.style.cssText = `
-    position: fixed;
-    top: 0;
-    left: 0;
-    width: 100%;
-    height: 100%;
+    position: fixed; top: 0; left: 0; width: 100%; height: 100%;
     background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-    z-index: 9999;
-    display: flex;
-    align-items: center;
-    justify-content: center;
+    z-index: 9999; display: flex; align-items: center; justify-content: center;
     animation: celebrationFadeIn 0.5s ease-out;
   `
 
   const style = document.createElement('style')
   style.textContent = `
-    .celebration-content {
-      text-align: center;
-      color: white;
-      animation: celebrationBounceIn 1s ease-out;
-    }
-    .big-celebration-icon {
-      font-size: 8rem;
-      margin-bottom: 1rem;
-      animation: celebrationSpin 2s ease-in-out infinite;
-    }
-    .celebration-title {
-      font-size: 3rem;
-      font-weight: bold;
-      margin: 0 0 1rem 0;
-      text-shadow: 2px 2px 4px rgba(0,0,0,0.3);
-    }
-    .celebration-subtitle {
-      font-size: 1.5rem;
-      opacity: 0.9;
-      text-shadow: 1px 1px 2px rgba(0,0,0,0.3);
-    }
-    @keyframes celebrationFadeIn {
-      from { opacity: 0; }
-      to { opacity: 1; }
-    }
-    @keyframes celebrationBounceIn {
-      0% { transform: scale(0.3) rotate(-10deg); opacity: 0; }
-      50% { transform: scale(1.1) rotate(5deg); opacity: 1; }
-      100% { transform: scale(1) rotate(0deg); opacity: 1; }
-    }
-    @keyframes celebrationSpin {
-      0%, 100% { transform: rotate(0deg) scale(1); }
-      25% { transform: rotate(10deg) scale(1.1); }
-      50% { transform: rotate(0deg) scale(1.2); }
-      75% { transform: rotate(-10deg) scale(1.1); }
-    }
-    @keyframes celebrationFadeOut {
-      from { opacity: 1; }
-      to { opacity: 0; }
-    }
+    .celebration-content { text-align: center; color: white; animation: celebrationBounceIn 1s ease-out; }
+    .big-celebration-icon { font-size: 8rem; margin-bottom: 1rem; animation: celebrationSpin 2s ease-in-out infinite; }
+    .celebration-title { font-size: 3rem; font-weight: bold; margin: 0 0 1rem 0; text-shadow: 2px 2px 4px rgba(0,0,0,0.3); }
+    .celebration-subtitle { font-size: 1.5rem; opacity: 0.9; text-shadow: 1px 1px 2px rgba(0,0,0,0.3); }
+    @keyframes celebrationFadeIn { from { opacity: 0; } to { opacity: 1; } }
+    @keyframes celebrationBounceIn { 0% { transform: scale(0.3) rotate(-10deg); opacity: 0; } 50% { transform: scale(1.1) rotate(5deg); opacity: 1; } 100% { transform: scale(1) rotate(0deg); opacity: 1; } }
+    @keyframes celebrationSpin { 0%, 100% { transform: rotate(0deg) scale(1); } 25% { transform: rotate(10deg) scale(1.1); } 50% { transform: rotate(0deg) scale(1.2); } 75% { transform: rotate(-10deg) scale(1.1); } }
+    @keyframes celebrationFadeOut { from { opacity: 1; } to { opacity: 0; } }
   `
 
   document.head.appendChild(style)
@@ -1414,12 +1360,8 @@ const showCelebrationAnimation = () => {
   setTimeout(() => {
     celebrationOverlay.style.animation = 'celebrationFadeOut 0.5s ease-out'
     setTimeout(() => {
-      if (document.body.contains(celebrationOverlay)) {
-        document.body.removeChild(celebrationOverlay)
-      }
-      if (document.head.contains(style)) {
-        document.head.removeChild(style)
-      }
+      if (document.body.contains(celebrationOverlay)) document.body.removeChild(celebrationOverlay)
+      if (document.head.contains(style)) document.head.removeChild(style)
     }, 500)
   }, 3000)
 }
@@ -1488,7 +1430,7 @@ const callAIAPI = async (answer: string, round: number, history: string[]): Prom
       body: JSON.stringify({
         sessionId: sessionId,
         step: 7,
-        userAnswer: answer, // ✅ userInput → userAnswer
+        userAnswer: answer,
         conversationRound: round,
         conversationHistory: (history || []).map((h) => ({
           type: 'user',
@@ -1496,9 +1438,8 @@ const callAIAPI = async (answer: string, round: number, history: string[]): Prom
           step: 7,
           stage: 1,
           timestamp: new Date().toISOString(),
-        })), // ✅ 结构化对象，后端就不会把它当"空"
+        })),
         context: {
-          // ✅ 用对象而不是字符串
           mode: 'self_reflection',
           topic: 'final_analysis',
         },
@@ -1529,15 +1470,15 @@ const callAIAPI = async (answer: string, round: number, history: string[]): Prom
 
 const generateContextualResponse = (answer: string): string => {
   if (answer.includes('最好') || answer.includes('擅长') || answer.includes('成功')) {
-    return '很棒的自我认知！<strong>认识自己的优势</strong>是持续成长的基础。你提到的这些做得好的地方，说明你在这些方面有天赋或者用心投入了。继续保持这些优势，它们会是你解决未来问题的重要工具！'
+    return '很棒的自我认知！<strong>认识自己的优势</strong>是持续成长的基础。'
   } else if (answer.includes('困难') || answer.includes('难') || answer.includes('挑战')) {
-    return '能够诚实面对困难是很好的反思态度！<strong>困难往往是成长的机会</strong>。你是如何克服这些挑战的？这个过程中学到了什么？这些经验对你今后处理类似问题会很有帮助。'
+    return '能够诚实面对困难是很好的反思态度！<strong>困难往往是成长的机会</strong>。'
   } else if (answer.includes('改进') || answer.includes('不同') || answer.includes('更好')) {
-    return '有改进意识太棒了！<strong>持续改进</strong>是专家级思维的特征。你的这些想法很有价值，说明你不仅完成了任务，还在思考如何做得更好。这种思维方式会让你在未来的问题解决中更加出色！'
+    return '有改进意识太棒了！<strong>持续改进</strong>是专家级思维的特征。'
   } else if (answer.includes('学到') || answer.includes('收获') || answer.includes('体会')) {
-    return '你的学习收获很丰富！<strong>从经验中学习</strong>是最重要的能力之一。看起来你不仅解决了教室通风问题，更重要的是掌握了解决复杂问题的方法。这些方法和思维方式可以应用到生活中的很多其他问题上。'
+    return '你的学习收获很丰富！<strong>从经验中学习</strong>是最重要的能力之一。'
   } else {
-    return `你的反思很深入！通过这次实验，你展现了<strong>系统思考能力</strong>、<strong>创新解决方案</strong>和<strong>灵活应变能力</strong>。这些都是21世纪最重要的核心技能。相信你已经准备好面对更多复杂的挑战了！`
+    return '你的反思很深入！通过这次实验，你展现了<strong>系统思考能力</strong>、<strong>创新解决方案</strong>和<strong>灵活应变能力</strong>。'
   }
 }
 
@@ -1608,7 +1549,6 @@ const showContentSequentially = async () => {
   }
 }
 
-// ========== 生命周期 ==========
 onMounted(() => {
   const stepData = simpleStorage.getStepData(7)
   if (stepData?.questionnaireCompleted) {
@@ -1737,6 +1677,38 @@ onMounted(() => {
   animation: fadeIn 0.5s ease-out;
 }
 
+.questionnaire-footer {
+  padding: 1.5rem 2rem;
+  border-top: 1px solid #e2e8f0;
+  display: flex;
+  justify-content: center;
+  flex-shrink: 0;
+  background: white;
+}
+
+/* ⭐ 统一按钮样式 - 只显示Footer中的按钮 */
+.questionnaire-footer .btn-primary,
+.questionnaire-footer .btn-submit {
+  width: 100%;
+  max-width: 400px;
+  padding: 1rem 2rem;
+  background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+  color: white;
+  border: none;
+  border-radius: 12px;
+  font-size: 1.1rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.3s ease;
+  box-shadow: 0 4px 20px rgba(102, 126, 234, 0.4);
+}
+
+.questionnaire-footer .btn-primary:hover,
+.questionnaire-footer .btn-submit:hover:not(.disabled) {
+  transform: translateY(-2px);
+  box-shadow: 0 6px 25px rgba(102, 126, 234, 0.5);
+}
+
 .intro-content h3 {
   color: #1e293b;
   font-size: 1.5rem;
@@ -1857,506 +1829,369 @@ onMounted(() => {
   text-align: left;
 }
 
-.start-btn {
-  margin-top: 2.5rem;
-  padding: 1rem 3.5rem;
-  background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-  color: white;
-  border: none;
-  border-radius: 30px;
-  font-size: 1.1rem;
-  font-weight: 600;
-  cursor: pointer;
-  transition: all 0.3s ease;
-  box-shadow: 0 4px 20px rgba(102, 126, 234, 0.4);
+/* ========== 全部问题容器 ========== */
+.all-questions-container {
+  max-height: 65vh;
+  overflow-y: auto;
+  padding: 1rem 0;
+  scrollbar-width: thin;
+  scrollbar-color: rgba(102, 126, 234, 0.4) transparent;
 }
 
-.start-btn:hover {
-  transform: translateY(-3px);
-  box-shadow: 0 8px 30px rgba(102, 126, 234, 0.5);
+.all-questions-container::-webkit-scrollbar {
+  width: 8px;
 }
 
-/* ========== 问题展示页样式 ========== */
-.question-container {
-  animation: fadeIn 0.4s ease-out;
+.all-questions-container::-webkit-scrollbar-track {
+  background: rgba(0, 0, 0, 0.02);
+  border-radius: 4px;
 }
 
-/* 分类标题 */
-.category-banner {
-  background: linear-gradient(135deg, #fef3c7 0%, #fde68a 100%);
-  border: 2px solid #fbbf24;
-  border-radius: 16px;
-  padding: 1.5rem;
-  margin-bottom: 2rem;
-  display: flex;
-  align-items: center;
-  gap: 1rem;
-  animation: slideIn 0.5s ease-out;
+.all-questions-container::-webkit-scrollbar-thumb {
+  background: rgba(102, 126, 234, 0.4);
+  border-radius: 4px;
+  transition: background 0.2s ease;
 }
 
-@keyframes slideIn {
-  from {
-    opacity: 0;
-    transform: translateX(-20px);
-  }
-  to {
-    opacity: 1;
-    transform: translateX(0);
-  }
+.all-questions-container::-webkit-scrollbar-thumb:hover {
+  background: rgba(102, 126, 234, 0.6);
 }
 
-.category-icon {
-  font-size: 2.5rem;
-  animation: rotate 3s ease-in-out infinite;
-}
-
-@keyframes rotate {
-  0%,
-  100% {
-    transform: rotate(0deg);
-  }
-  25% {
-    transform: rotate(-5deg);
-  }
-  75% {
-    transform: rotate(5deg);
-  }
-}
-
-.category-info h3 {
-  color: #92400e;
-  font-size: 1.3rem;
-  margin: 0 0 0.5rem 0;
-  font-weight: 700;
-}
-
-.category-info p {
-  color: #b45309;
-  font-size: 0.95rem;
-  margin: 0;
-}
-
-/* 问题卡片 */
-.question-card {
-  background: #f8fafc;
-  border: 2px solid #e2e8f0;
-  border-radius: 20px;
-  padding: 2rem;
-  margin-bottom: 2rem;
-  animation: scaleIn 0.4s ease-out;
-}
-
-@keyframes scaleIn {
-  from {
-    opacity: 0;
-    transform: scale(0.95);
-  }
-  to {
-    opacity: 1;
-    transform: scale(1);
-  }
-}
-
-.question-header {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  margin-bottom: 1.5rem;
-  padding-bottom: 1rem;
-  border-bottom: 2px solid #e2e8f0;
-}
-
-.question-number {
-  color: #667eea;
-  font-weight: 700;
-  font-size: 1rem;
-  background: linear-gradient(135deg, #f0f4ff 0%, #e6edff 100%);
-  padding: 0.5rem 1rem;
-  border-radius: 20px;
-}
-
-.question-category {
-  color: #64748b;
-  font-size: 0.9rem;
-  font-weight: 500;
-  background: #f1f5f9;
-  padding: 0.4rem 1rem;
-  border-radius: 15px;
-}
-
-.question-text {
-  font-size: 1.15rem;
-  font-weight: 500;
-  color: #1e293b;
-  line-height: 1.7;
-  margin-bottom: 2rem;
-  padding: 0 0.5rem;
-}
-
-/* Likert量表样式 */
-.likert-scale {
-  display: flex;
-  flex-direction: column;
-  gap: 1.5rem;
-}
-
-.scale-labels {
-  display: flex;
-  justify-content: space-between;
-  padding: 0 0.5rem;
-  font-size: 0.9rem;
-  color: #64748b;
-  font-weight: 600;
-}
-
-.scale-label-start {
-  color: #dc2626;
-}
-
-.scale-label-end {
-  color: #059669;
-}
-
-.scale-options {
-  display: flex;
-  justify-content: space-between;
-  gap: 0.75rem;
-}
-
-.scale-option {
-  flex: 1;
-  background: white;
-  border: 2.5px solid #e2e8f0;
-  border-radius: 14px;
-  padding: 1.25rem 0.5rem;
-  cursor: pointer;
-  transition: all 0.25s ease;
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  gap: 0.75rem;
-  position: relative;
-  overflow: hidden;
-}
-
-.scale-option::before {
-  content: '';
-  position: absolute;
+/* ========== ⭐ 进度提示优化 ========== */
+.progress-summary {
+  position: sticky;
   top: 0;
-  left: 0;
-  right: 0;
-  bottom: 0;
-  background: linear-gradient(135deg, transparent 0%, rgba(102, 126, 234, 0.05) 100%);
-  opacity: 0;
-  transition: opacity 0.3s ease;
+  background: linear-gradient(135deg, #ffffff 0%, #f8fafc 100%);
+  border: 2px solid #e0e7ff;
+  padding: 1.5rem 2rem;
+  border-radius: 12px;
+  margin-bottom: 1.5rem;
+  z-index: 10;
+  box-shadow: 0 2px 12px rgba(0, 0, 0, 0.08);
 }
 
-.scale-option:hover::before {
-  opacity: 1;
-}
-
-.scale-option:hover {
-  border-color: #667eea;
-  transform: translateY(-3px);
-  box-shadow: 0 6px 20px rgba(102, 126, 234, 0.2);
-}
-
-.scale-option.selected {
-  border-color: #667eea;
-  background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-  color: white;
-  transform: translateY(-3px) scale(1.05);
-  box-shadow: 0 8px 25px rgba(102, 126, 234, 0.4);
-}
-
-.scale-option.selected::before {
-  opacity: 0;
-}
-
-.scale-option input[type='radio'] {
-  width: 20px;
-  height: 20px;
-  cursor: pointer;
-  accent-color: #667eea;
-}
-
-.scale-option.selected input[type='radio'] {
-  accent-color: white;
-}
-
-.scale-value {
-  font-weight: 700;
-  font-size: 1.3rem;
-  position: relative;
-  z-index: 1;
-  color: #1e293b;
-}
-
-.scale-label {
-  font-size: 0.8rem;
-  font-weight: 500;
-  text-align: center;
-  line-height: 1.3;
-  opacity: 0.9;
-  position: relative;
-  z-index: 1;
-  color: #334155;
-}
-
-/*
-.scale-option.scale-negative:not(.selected) .scale-value {
-  color: #dc2626;
-}
-
-.scale-option.scale-neutral:not(.selected) .scale-value {
-  color: #f59e0b;
-}
-
-.scale-option.scale-positive:not(.selected) .scale-value {
-  color: #059669;
-}
-*/
-
-/* 选中时全部变白色 */
-.scale-option.selected .scale-value,
-.scale-option.selected .scale-label {
-  color: white;
-  font-weight: 600;
-}
-
-/* 答题进度 */
-.answer-progress {
-  margin-bottom: 2rem;
-}
-
-.progress-text {
-  color: #64748b;
-  font-size: 0.9rem;
-  font-weight: 500;
-  margin-bottom: 0.75rem;
-  text-align: center;
+.progress-bar-wrapper {
+  display: flex;
+  flex-direction: column;
+  gap: 1.5rem; /* ⭐ 改这里 */
+  align-items: stretch; /* ⭐ 新增这行 */
 }
 
 .progress-bar {
-  height: 8px;
-  background: #e2e8f0;
-  border-radius: 10px;
+  height: 14px;
+  border-radius: 7px;
   overflow: hidden;
+  border: 1px solid #c7d2fe;
   box-shadow: inset 0 1px 3px rgba(0, 0, 0, 0.1);
+  background: rgba(255, 255, 255, 0.6); /* 浅色进度条底 */
 }
 
 .progress-fill {
   height: 100%;
   background: linear-gradient(90deg, #667eea 0%, #764ba2 100%);
-  border-radius: 10px;
-  transition: width 0.4s ease;
+  transition: width 0.5s ease;
+  border-radius: 7px;
   box-shadow: 0 0 10px rgba(102, 126, 234, 0.5);
 }
 
-/* 导航按钮 */
-.question-navigation {
-  display: flex;
-  justify-content: space-between;
-  gap: 1rem;
-}
-
-.nav-btn {
-  padding: 0.9rem 2rem;
-  border-radius: 28px;
-  font-weight: 600;
-  font-size: 1rem;
-  cursor: pointer;
-  transition: all 0.3s ease;
-  border: none;
+.progress-text {
   display: flex;
   align-items: center;
-  gap: 0.5rem;
-  min-width: 120px;
-  justify-content: center;
+  gap: 1rem;
+  font-size: 1rem;
+  font-weight: 600;
+  color: #1e293b;
+  padding-bottom: 0.75rem; /* ⭐ 新增 */
+  border-bottom: 1px solid #e0e7ff; /* ⭐ 新增 */
 }
 
-.btn-icon {
-  font-size: 1.1rem;
+.warning-text {
+  color: #f59e0b;
   font-weight: 700;
-}
-
-.prev-btn {
-  background: #f1f5f9;
-  color: #475569;
-  border: 2px solid #e2e8f0;
-}
-
-.prev-btn:hover:not(:disabled) {
-  background: #e2e8f0;
-  border-color: #cbd5e1;
-  transform: translateX(-3px);
-}
-
-.next-btn {
-  background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-  color: white;
-  box-shadow: 0 4px 15px rgba(102, 126, 234, 0.3);
-}
-
-.next-btn:hover:not(:disabled) {
-  transform: translateX(3px);
-  box-shadow: 0 6px 25px rgba(102, 126, 234, 0.4);
-}
-
-.submit-btn {
-  background: linear-gradient(135deg, #059669 0%, #047857 100%);
-  color: white;
-  box-shadow: 0 4px 15px rgba(5, 150, 105, 0.3);
   animation: pulse 2s ease-in-out infinite;
+}
+
+.complete-text {
+  color: #10b981;
+  font-weight: 700;
 }
 
 @keyframes pulse {
   0%,
   100% {
-    box-shadow: 0 4px 15px rgba(5, 150, 105, 0.3);
+    opacity: 1;
   }
   50% {
-    box-shadow: 0 6px 25px rgba(5, 150, 105, 0.5);
+    opacity: 0.6;
   }
 }
 
-.submit-btn:hover:not(:disabled) {
-  transform: translateY(-3px) scale(1.03);
-  box-shadow: 0 8px 30px rgba(5, 150, 105, 0.5);
-  animation: none;
+/* ========== 问题卡片优化 ========== */
+.question-card {
+  background: white;
+  border: 2px solid #e2e8f0;
+  border-radius: 12px;
+  padding: 1.5rem;
+  margin-bottom: 1.5rem;
+  transition: all 0.3s ease;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.05);
 }
 
-.nav-btn:disabled {
-  opacity: 0.4;
+/* 已作答状态 - 增强绿色效果 */
+.question-card.answered {
+  border-color: #10b981;
+  background: linear-gradient(135deg, #f0fdf4 0%, #ffffff 100%);
+  box-shadow: 0 2px 8px rgba(16, 185, 129, 0.15);
+}
+
+/* 未作答状态 - 增强黄色效果 */
+.question-card.unanswered {
+  border-color: #fbbf24;
+  background: linear-gradient(135deg, #fffbeb 0%, #ffffff 100%);
+  box-shadow: 0 2px 8px rgba(251, 191, 36, 0.15);
+}
+
+/* 开放性问题卡片 - 增强紫色效果 */
+.question-card.is-textarea {
+  border-color: #8b5cf6;
+  background: linear-gradient(135deg, #faf5ff 0%, #ffffff 100%);
+  box-shadow: 0 2px 8px rgba(139, 92, 246, 0.15);
+}
+
+/* 高亮动画（未完成题目） */
+.question-card.highlight-incomplete {
+  animation: highlightPulse 1s ease-in-out 3;
+  border-color: #ef4444 !important;
+}
+
+@keyframes highlightPulse {
+  0%,
+  100% {
+    box-shadow: 0 0 0 0 rgba(239, 68, 68, 0.4);
+    transform: scale(1);
+  }
+  50% {
+    box-shadow: 0 0 0 10px rgba(239, 68, 68, 0);
+    transform: scale(1.02);
+  }
+}
+
+/* ========== ⭐ 分类标题优化 - 白色文字 ========== */
+.category-header {
+  display: flex;
+  align-items: center;
+  gap: 1rem;
+  padding: 1.2rem 1.5rem;
+  background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+  border-radius: 12px;
+  margin: -1.5rem -1.5rem 1.5rem -1.5rem;
+  box-shadow: 0 4px 15px rgba(102, 126, 234, 0.3);
+}
+
+.category-icon {
+  font-size: 2rem;
+  filter: drop-shadow(0 2px 4px rgba(0, 0, 0, 0.2));
+}
+
+.category-info h3 {
+  margin: 0 0 0.25rem 0;
+  font-size: 1.15rem;
+  font-weight: 700;
+  color: #ffffff !important;
+  text-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+}
+
+.category-info p {
+  margin: 0;
+  font-size: 0.9rem;
+  color: rgba(255, 255, 255, 0.95) !important;
+  font-weight: 500;
+}
+
+/* ========== 题目头部 ========== */
+.question-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 1rem;
+}
+
+.question-number {
+  font-size: 0.85rem;
+  color: #667eea;
+  font-weight: 600;
+  background: rgba(102, 126, 234, 0.1);
+  padding: 0.25rem 0.75rem;
+  border-radius: 20px;
+}
+
+.answered-badge {
+  color: #10b981;
+  font-size: 0.85rem;
+  font-weight: 600;
+  background: rgba(16, 185, 129, 0.1);
+  padding: 0.25rem 0.75rem;
+  border-radius: 20px;
+}
+
+.unanswered-badge {
+  color: #f59e0b;
+  font-size: 0.85rem;
+  font-weight: 600;
+  background: rgba(245, 158, 11, 0.1);
+  padding: 0.25rem 0.75rem;
+  border-radius: 20px;
+}
+
+.optional-badge {
+  color: #8b5cf6;
+  font-size: 0.85rem;
+  font-weight: 600;
+  background: rgba(139, 92, 246, 0.1);
+  padding: 0.25rem 0.75rem;
+  border-radius: 20px;
+}
+
+/* ========== 题目内容 ========== */
+.question-content {
+  margin-bottom: 1rem;
+}
+
+.question-text {
+  font-size: 1rem;
+  color: #1e293b;
+  line-height: 1.6;
+  margin: 0;
+  font-weight: 500;
+}
+
+/* ========== ⭐ 选项样式 - 大幅缩小版本（50%+）========== */
+.answer-options {
+  display: flex;
+  gap: 0.3rem;
+  justify-content: space-between;
+}
+
+.option-item {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.2rem;
+  padding: 0.4rem 0.2rem;
+  border: 2px solid #e2e8f0;
+  border-radius: 10px;
+  cursor: pointer;
+  transition: all 0.2s ease;
+  background: white;
+}
+
+.option-item:hover {
+  border-color: #667eea;
+  transform: translateY(-2px);
+  box-shadow: 0 4px 12px rgba(102, 126, 234, 0.2);
+}
+
+.option-item.selected {
+  border-color: #667eea;
+  background: linear-gradient(135deg, #f0f4ff 0%, #e6edff 100%);
+  box-shadow: 0 2px 8px rgba(102, 126, 234, 0.25);
+}
+
+.option-radio {
+  font-size: 0.8rem;
+  color: #667eea;
+  line-height: 1;
+}
+
+.option-label {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.15rem;
+}
+
+.option-number {
+  font-size: 0.65rem;
+  font-weight: 700;
+  color: #667eea;
+  line-height: 1;
+}
+
+.option-text {
+  font-size: 0.55rem;
+  color: #475569;
+  text-align: center;
+  line-height: 1.1;
+  font-weight: 500;
+  word-break: keep-all;
+}
+
+/* ========== 开放性问题文本框 ========== */
+.textarea-container {
+  margin-top: 1rem;
+}
+
+.feedback-textarea {
+  width: 100%;
+  min-height: 150px;
+  padding: 1rem;
+  border: 2px solid #c7d2fe;
+  border-radius: 10px;
+  font-size: 0.95rem;
+  line-height: 1.6;
+  color: #1e293b;
+  resize: vertical;
+  transition: all 0.2s ease;
+  font-family: inherit;
+}
+
+.feedback-textarea:focus {
+  outline: none;
+  border-color: #8b5cf6;
+  box-shadow: 0 0 0 3px rgba(139, 92, 246, 0.1);
+}
+
+.feedback-textarea::placeholder {
+  color: #94a3b8;
+}
+
+.char-count {
+  text-align: right;
+  font-size: 0.85rem;
+  color: #64748b;
+  margin-top: 0.5rem;
+}
+
+/* ========== 提交按钮优化 ========== */
+.btn-submit {
+  width: 100%;
+  padding: 1rem 2rem;
+  font-size: 1.1rem;
+  font-weight: 600;
+  background: linear-gradient(135deg, #10b981 0%, #059669 100%);
+  color: white;
+  border: none;
+  border-radius: 12px;
+  cursor: pointer;
+  transition: all 0.3s ease;
+  box-shadow: 0 4px 16px rgba(16, 185, 129, 0.3);
+}
+
+.btn-submit:hover:not(.disabled) {
+  transform: translateY(-2px);
+  box-shadow: 0 6px 20px rgba(16, 185, 129, 0.4);
+}
+
+.btn-submit.disabled {
+  background: linear-gradient(135deg, #fbbf24 0%, #f59e0b 100%);
   cursor: not-allowed;
+  box-shadow: 0 4px 16px rgba(251, 191, 36, 0.3);
+}
+
+.btn-submit.disabled:hover {
   transform: none;
-  box-shadow: none;
-}
-
-/* ========== 响应式设计 ========== */
-@media (max-width: 768px) {
-  .questionnaire-content {
-    width: 95%;
-    max-height: 95vh;
-    border-radius: 16px;
-  }
-
-  .questionnaire-header {
-    padding: 1.25rem 1.5rem;
-  }
-
-  .questionnaire-header h2 {
-    font-size: 1.25rem;
-  }
-
-  .header-icon {
-    font-size: 1.5rem;
-  }
-
-  .progress-indicator {
-    padding: 0.4rem 1rem;
-    font-size: 0.9rem;
-  }
-
-  .questionnaire-body {
-    padding: 1.5rem;
-  }
-
-  .scale-legend {
-    grid-template-columns: repeat(5, 1fr);
-    gap: 0.5rem;
-  }
-
-  .scale-item {
-    padding: 0.5rem 0.25rem;
-  }
-
-  .scale-num {
-    width: 28px;
-    height: 28px;
-    font-size: 0.95rem;
-  }
-
-  .scale-text {
-    font-size: 0.7rem;
-  }
-
-  .intro-stats {
-    flex-direction: column;
-    gap: 1rem;
-    align-items: center;
-  }
-
-  .question-card {
-    padding: 1.5rem;
-  }
-
-  .question-text {
-    font-size: 1.05rem;
-  }
-
-  .scale-options {
-    gap: 0.5rem;
-  }
-
-  .scale-option {
-    padding: 1rem 0.25rem;
-  }
-
-  .scale-value {
-    font-size: 1.2rem;
-  }
-
-  .scale-label {
-    font-size: 0.7rem;
-  }
-
-  .question-navigation {
-    flex-direction: column;
-  }
-
-  .nav-btn {
-    width: 100%;
-    min-width: auto;
-  }
-
-  .category-banner {
-    padding: 1rem;
-  }
-
-  .category-icon {
-    font-size: 2rem;
-  }
-
-  .category-info h3 {
-    font-size: 1.1rem;
-  }
-
-  .category-info p {
-    font-size: 0.85rem;
-  }
-}
-
-@media (max-width: 480px) {
-  .scale-legend {
-    grid-template-columns: 1fr;
-    gap: 0.5rem;
-  }
-
-  .scale-item {
-    flex-direction: row;
-    justify-content: flex-start;
-    padding: 0.75rem;
-  }
-
-  .scale-num {
-    flex-shrink: 0;
-  }
-
-  .scale-text {
-    text-align: left;
-    font-size: 0.85rem;
-  }
+  box-shadow: 0 4px 16px rgba(251, 191, 36, 0.3);
 }
 
 /* 成功提示Toast */
@@ -2401,6 +2236,7 @@ onMounted(() => {
   font-weight: 600;
 }
 
+/* ========== Step 7 主容器 ========== */
 .step-seven-container {
   height: 100%;
   display: flex;
@@ -2420,12 +2256,10 @@ onMounted(() => {
   display: flex;
   flex-direction: column;
   gap: 24px;
-  /* 自定义滚动条样式 */
   scrollbar-width: thin;
   scrollbar-color: rgba(102, 126, 234, 0.3) transparent;
 }
 
-/* 修复滚动条圆角问题 */
 .chat-scroll-area::-webkit-scrollbar {
   width: 6px;
 }
@@ -3197,333 +3031,7 @@ onMounted(() => {
   }
 }
 
-@keyframes bounce {
-  0%,
-  100% {
-    transform: translateY(0);
-  }
-  50% {
-    transform: translateY(-10px);
-  }
-}
-
-@keyframes pulse {
-  0%,
-  100% {
-    transform: scale(1);
-    opacity: 1;
-  }
-  50% {
-    transform: scale(1.05);
-    opacity: 0.9;
-  }
-}
-
-/* 响应式设计 */
-@media (max-width: 1200px) {
-  .chart-container {
-    grid-template-columns: 1fr;
-    gap: 20px;
-  }
-
-  .achievement-grid {
-    grid-template-columns: 1fr;
-  }
-}
-
-@media (max-width: 768px) {
-  .info-card-section {
-    padding: 20px 20px 0 20px;
-  }
-
-  .chat-scroll-area {
-    padding: 0 20px;
-  }
-
-  .input-section {
-    padding: 20px;
-  }
-
-  .message-content {
-    max-width: 90%;
-  }
-
-  .action-buttons {
-    flex-direction: column;
-    width: 100%;
-  }
-
-  .submit-button {
-    width: 100%;
-  }
-
-  .chart-container {
-    grid-template-columns: 1fr;
-    gap: 16px;
-  }
-
-  .achievement-grid {
-    grid-template-columns: 1fr;
-  }
-
-  .message {
-    margin-bottom: 16px;
-  }
-
-  .evaluation-modal-content {
-    width: 95%;
-    max-width: none;
-  }
-
-  .evaluation-header {
-    padding: 1rem 1.5rem;
-  }
-
-  .evaluation-header h2 {
-    font-size: 1.25rem;
-  }
-
-  .evaluation-body {
-    padding: 1.5rem;
-  }
-
-  .assessment-item {
-    flex-direction: column;
-    align-items: flex-start;
-    gap: 0.75rem;
-  }
-
-  .assessment-name {
-    font-size: 0.9rem;
-  }
-
-  .assessment-level {
-    align-self: flex-start;
-    min-width: auto;
-  }
-
-  .assessment-description {
-    font-size: 0.8rem;
-  }
-
-  .suggestion-header {
-    flex-direction: column;
-    align-items: flex-start;
-    gap: 0.5rem;
-  }
-
-  .suggestion-level {
-    align-self: flex-start;
-  }
-}
-
-/* ========== 新增：评估进度卡片样式 ========== */
-
-/* system 类型消息样式 */
-.message.system .message-avatar {
-  background: linear-gradient(135deg, #3b82f6, #1d4ed8);
-  color: white;
-  margin-right: 16px;
-}
-
-.message.system .message-content {
-  max-width: 85%;
-}
-
-.evaluation-progress-card {
-  background: linear-gradient(135deg, #f0f9ff 0%, #e0f2fe 100%) !important;
-  border: 2px solid #38bdf8 !important;
-  border-radius: 20px !important;
-  padding: 2.5rem !important;
-}
-
-.evaluation-generating h3 {
-  color: #0c4a6e;
-  font-size: 1.3rem;
-  font-weight: 700;
-  margin-bottom: 1.5rem;
-  text-align: center;
-}
-
-/* 静态警告提示 */
-.generating-warning {
-  background: #fef3c7;
-  border: 2px solid #f59e0b;
-  border-radius: 12px;
-  padding: 1rem 1.5rem;
-  margin-bottom: 2rem;
-  display: flex;
-  align-items: center;
-  gap: 0.75rem;
-  justify-content: center;
-}
-
-.warning-icon {
-  font-size: 1.5rem;
-}
-
-.warning-text {
-  color: #92400e;
-  font-size: 0.95rem;
-  font-weight: 500;
-}
-
-.warning-text strong {
-  color: #dc2626;
-  font-weight: 700;
-}
-
-/* 进度环容器 */
-.progress-ring-container {
-  position: relative;
-  width: 140px;
-  height: 140px;
-  margin: 2rem auto;
-}
-
-.progress-ring-svg {
-  transform: rotate(-90deg);
-  filter: drop-shadow(0 8px 16px rgba(102, 126, 234, 0.3));
-}
-
-.progress-ring-circle {
-  transition: stroke-dashoffset 0.5s ease;
-}
-
-.progress-text {
-  position: absolute;
-  top: 50%;
-  left: 50%;
-  transform: translate(-50%, -50%);
-  text-align: center;
-  width: 100%;
-}
-
-.progress-percentage {
-  font-size: 2rem;
-  font-weight: 700;
-  color: #667eea;
-  line-height: 1;
-  margin-bottom: 0.25rem;
-}
-
-.progress-label {
-  font-size: 0.75rem;
-  color: #64748b;
-  font-weight: 500;
-}
-
-/* 分步指示器 */
-.evaluation-steps {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  gap: 0;
-  margin-top: 2rem;
-}
-
-.step-item {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  gap: 0.5rem;
-  opacity: 0.3;
-  transition: all 0.3s ease;
-}
-
-.step-item.active {
-  opacity: 1;
-}
-
-.step-circle {
-  width: 40px;
-  height: 40px;
-  border-radius: 50%;
-  background: #e2e8f0;
-  border: 3px solid #cbd5e1;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  font-weight: 700;
-  font-size: 1rem;
-  color: #64748b;
-  transition: all 0.3s ease;
-}
-
-.step-item.active .step-circle {
-  background: linear-gradient(135deg, #667eea, #764ba2);
-  border-color: #667eea;
-  color: white;
-  animation: pulse 1.5s ease-in-out infinite;
-}
-
-.step-item.completed .step-circle {
-  background: linear-gradient(135deg, #10b981, #059669);
-  border-color: #10b981;
-  color: white;
-}
-
-.step-label {
-  font-size: 0.75rem;
-  font-weight: 600;
-  color: #64748b;
-  white-space: nowrap;
-}
-
-.step-item.active .step-label {
-  color: #334155;
-}
-
-.step-line {
-  width: 60px;
-  height: 3px;
-  background: #e2e8f0;
-  margin: 0 -5px;
-  margin-bottom: 24px;
-  transition: all 0.3s ease;
-}
-
-.step-line.active {
-  background: linear-gradient(90deg, #667eea, #764ba2);
-}
-
-/* 响应式适配 */
-@media (max-width: 768px) {
-  .evaluation-progress-card {
-    padding: 1.5rem !important;
-  }
-
-  .progress-ring-container {
-    width: 120px;
-    height: 120px;
-  }
-
-  .progress-percentage {
-    font-size: 1.75rem;
-  }
-
-  .evaluation-steps {
-    gap: 0;
-  }
-
-  .step-circle {
-    width: 36px;
-    height: 36px;
-    font-size: 0.9rem;
-  }
-
-  .step-line {
-    width: 40px;
-  }
-
-  .step-label {
-    font-size: 0.7rem;
-  }
-}
-
-/* ========== 新增：评估进度卡片样式 ========== */
-
-/* system 类型消息样式 */
+/* 系统消息样式 */
 .message.system {
   display: flex;
   margin-bottom: 20px;
@@ -3610,15 +3118,6 @@ onMounted(() => {
   transition: stroke-dashoffset 0.5s ease;
 }
 
-.progress-text {
-  position: absolute;
-  top: 50%;
-  left: 50%;
-  transform: translate(-50%, -50%);
-  text-align: center;
-  width: 100%;
-}
-
 .progress-percentage {
   font-size: 2rem;
   font-weight: 700;
@@ -3707,8 +3206,7 @@ onMounted(() => {
   background: linear-gradient(90deg, #667eea, #764ba2);
 }
 
-/* ========== 新增：评估完成卡片样式 ========== */
-
+/* 评估完成卡片 */
 .evaluation-complete-card {
   background: linear-gradient(135deg, #f0fdf4 0%, #dcfce7 100%) !important;
   border: 2px solid #86efac !important;
@@ -3767,8 +3265,199 @@ onMounted(() => {
   font-size: 1.3rem;
 }
 
-/* 响应式适配 */
+/* ========== 响应式设计 ========== */
+@media (max-width: 1200px) {
+  .chart-container {
+    grid-template-columns: 1fr;
+    gap: 20px;
+  }
+
+  .achievement-grid {
+    grid-template-columns: 1fr;
+  }
+}
+
 @media (max-width: 768px) {
+  .questionnaire-content {
+    width: 95%;
+    max-height: 95vh;
+    border-radius: 16px;
+  }
+
+  .questionnaire-header {
+    padding: 1.25rem 1.5rem;
+  }
+
+  .questionnaire-header h2 {
+    font-size: 1.25rem;
+  }
+
+  .header-icon {
+    font-size: 1.5rem;
+  }
+
+  .progress-indicator {
+    padding: 0.4rem 1rem;
+    font-size: 0.9rem;
+  }
+
+  .questionnaire-body {
+    padding: 1.5rem;
+  }
+
+  .scale-legend {
+    grid-template-columns: repeat(5, 1fr);
+    gap: 0.5rem;
+  }
+
+  .scale-item {
+    padding: 0.5rem 0.25rem;
+  }
+
+  .scale-num {
+    width: 28px;
+    height: 28px;
+    font-size: 0.95rem;
+  }
+
+  .scale-text {
+    font-size: 0.7rem;
+  }
+
+  .intro-stats {
+    flex-direction: column;
+    gap: 1rem;
+    align-items: center;
+  }
+
+  .question-card {
+    padding: 1.5rem;
+  }
+
+  .question-text {
+    font-size: 1.05rem;
+  }
+
+  .answer-options {
+    gap: 0.25rem;
+  }
+
+  .option-item {
+    padding: 0.35rem 0.15rem;
+  }
+
+  .option-radio {
+    font-size: 0.75rem;
+  }
+
+  .option-number {
+    font-size: 0.6rem;
+  }
+
+  .option-text {
+    font-size: 0.5rem;
+  }
+
+  .category-header {
+    padding: 1rem;
+  }
+
+  .category-icon {
+    font-size: 2rem;
+  }
+
+  .category-info h3 {
+    font-size: 1.1rem;
+  }
+
+  .category-info p {
+    font-size: 0.85rem;
+  }
+
+  .info-card-section {
+    padding: 20px 20px 0 20px;
+  }
+
+  .chat-scroll-area {
+    padding: 0 20px;
+  }
+
+  .input-section {
+    padding: 20px;
+  }
+
+  .message-content {
+    max-width: 90%;
+  }
+
+  .action-buttons {
+    flex-direction: column;
+    width: 100%;
+  }
+
+  .submit-button {
+    width: 100%;
+  }
+
+  .chart-container {
+    grid-template-columns: 1fr;
+    gap: 16px;
+  }
+
+  .achievement-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .message {
+    margin-bottom: 16px;
+  }
+
+  .evaluation-modal-content {
+    width: 95%;
+    max-width: none;
+  }
+
+  .evaluation-header {
+    padding: 1rem 1.5rem;
+  }
+
+  .evaluation-header h2 {
+    font-size: 1.25rem;
+  }
+
+  .evaluation-body {
+    padding: 1.5rem;
+  }
+
+  .assessment-item {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 0.75rem;
+  }
+
+  .assessment-name {
+    font-size: 0.9rem;
+  }
+
+  .assessment-level {
+    align-self: flex-start;
+    min-width: auto;
+  }
+
+  .assessment-description {
+    font-size: 0.8rem;
+  }
+
+  .suggestion-header {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 0.5rem;
+  }
+
+  .suggestion-level {
+    align-self: flex-start;
+  }
+
   .evaluation-progress-card,
   .evaluation-complete-card {
     padding: 1.5rem !important;
@@ -3804,6 +3493,48 @@ onMounted(() => {
   .view-report-btn {
     padding: 0.875rem 2rem;
     font-size: 1rem;
+  }
+}
+
+@media (max-width: 480px) {
+  .scale-legend {
+    grid-template-columns: 1fr;
+    gap: 0.5rem;
+  }
+
+  .scale-item {
+    flex-direction: row;
+    justify-content: flex-start;
+    padding: 0.75rem;
+  }
+
+  .scale-num {
+    flex-shrink: 0;
+  }
+
+  .scale-text {
+    text-align: left;
+    font-size: 0.85rem;
+  }
+
+  .answer-options {
+    gap: 0.2rem;
+  }
+
+  .option-item {
+    padding: 0.3rem 0.1rem;
+  }
+
+  .option-radio {
+    font-size: 0.7rem;
+  }
+
+  .option-number {
+    font-size: 0.55rem;
+  }
+
+  .option-text {
+    font-size: 0.48rem;
   }
 }
 </style>

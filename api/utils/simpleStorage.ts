@@ -169,6 +169,42 @@ class SimpleStorage {
     }
   }
 
+  // 🔥 修复：初始化Step2数据（带自动清理）
+  initializeStep2Data(experimentId: string): Step2Data {
+    const sessionId = `session_${Date.now()}_${Math.random().toString(36).substring(2, 15)}`
+
+    console.log('✨ Step2: 初始化新数据')
+
+    // 清理可能的旧锁定状态
+    const oldConfirmed = this.getItem<{ sessionId?: string }>('step2_final_answer_confirmed')
+
+    if (oldConfirmed && (!oldConfirmed.sessionId || oldConfirmed.sessionId !== sessionId)) {
+      console.log('🧹 Step2 初始化 - 清理旧的锁定状态')
+      this.removeItem('step2_final_answer_confirmed')
+      this.removeItem('step2_final_answer')
+      this.removeItem('step2_temp_snapshot')
+    }
+
+    // ✅ 修复：使用正确的字段名
+    const step2Data: Step2Data = {
+      sessionId,
+      currentStage: 1,
+      conversationCount: 0,
+      stageCompletionStatus: [false, false], // ✅ 修复：Step2只有2个阶段
+      messages: [], // ✅ 修复：正确的字段名
+      finalAnswerSnapshot: '',
+      finalAnswerConfirmed: false,
+      stage1Snapshot: '',
+      stage2Snapshot: '',
+    }
+
+    // ✅ 修复：使用正确的保存方法
+    this.saveStepData(2, step2Data)
+    console.log('✅ Step2 初始化完成，sessionId:', sessionId)
+
+    return step2Data
+  }
+
   // 初始化会话
   initSession(): string {
     const sessionId = `session_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`
@@ -815,8 +851,14 @@ class SimpleStorage {
 
   getSessionId(): string {
     const session = this.getSessionData()
-    if (session) return session.sessionId
 
+    // 如果有session且sessionId有效
+    if (session && session.sessionId) {
+      return session.sessionId
+    }
+
+    // 如果没有session或sessionId无效，初始化新session
+    console.warn('⚠️ sessionId 不存在，创建新 session')
     return this.initSession()
   }
 
@@ -832,7 +874,7 @@ class SimpleStorage {
         const key = localStorage.key(i)
         if (
           key &&
-          (key.startsWith('step_') ||
+          (key.startsWith('step') ||
             key.startsWith('experiment_') ||
             key.startsWith('chat_') ||
             key.includes('progress') ||

@@ -569,12 +569,44 @@ function getSocraticSystemPrompt(step, stage = 1) {
       baseRules +
       `
 
-【Step 6 特别要求】
-- 引导学生整合Step2-5的关键发现
-- 识别前期讨论中的遗漏点和可优化之处
-- 当学生表示"没有补充"或"可以开始"时，确认并鼓励生成方案
-- 不要重复前面步骤已经详细讨论过的内容
-- 聚焦在"完善整体方案"而非"重新讨论技术细节"
+【Step 6 特别要求 - 双模式引导】
+
+**模式A：直接帮助模式（优先）**
+当学生出现以下情况时，必须切换到直接帮助模式：
+- 明确请求具体建议："给我建议"、"提修改意见"、"怎么优化"
+- 表示不知道："我不知道"、"不太清楚"、"想不到"
+- 请求示例："给我个例子"、"举个例子"、"有什么案例"
+- 明确请求告知："你告诉我"、"你说说看"、"你觉得呢"
+- 连续2次以上回复"不知道"或类似表达
+
+此时AI应该：
+1. 直接给出2-3条具体建议（不再反问）
+2. 如果要例子，就给例子（不再问"你觉得"）
+3. 建议要具体可操作，包含实际内容
+4. 用"我建议"、"可以这样"、"比如"等直接表达
+
+**模式B：引导探索模式**
+当学生主动表达想法、提出问题时，可以用引导性提问：
+- 学生："我觉得XX部分可以加强" → 引导其具体化
+- 学生："XX方案是不是更好" → 引导其分析利弊
+
+**核心原则：**
+- Step6是方案整合阶段，不是学习探索阶段
+- 学生如果主动求助，就直接帮助
+- 不要让学生重复说"我不知道"3次才给答案
+
+【当前可用信息】
+- context.initialDraft: 学生的方案初稿
+- context.currentPlan: 学生当前编辑的方案
+- context.previousSteps: Step2-5的确认内容
+- conversationHistory: 当前对话历史
+
+【具体建议示例】
+❌ 差："基于前面的温湿度讨论，你觉得怎么整合？"
+✅ 好："我建议在问题分析部分补充具体阈值，比如：温度>28℃或CO2>1000ppm时触发通风。"
+
+❌ 差："你觉得哪些因素需要协调？"
+✅ 好："可以补充三个方面：1.传感器数据采集频率 2.多参数联动规则 3.应急预案触发条件。"
 
 【教室场景】40人/60㎡，夏季，外温22-35℃，空调3.2kW`
     )
@@ -1002,7 +1034,14 @@ ${actualInput ? `学生的输入：${actualInput}` : '学生点击了帮助按�
 }
 
 /* ============================== 用户提示词构建函数 ============================== */
-function buildUserPrompt(userAnswer, step, stage, recentQuestions, conversationHistory = []) {
+function buildUserPrompt(
+  userAnswer,
+  step,
+  stage,
+  recentQuestions,
+  conversationHistory = [],
+  context = {},
+) {
   const normalizedHistory = normalizeConversationHistory(conversationHistory)
 
   // 检测各种帮助请求类型
@@ -1076,6 +1115,7 @@ function buildUserPrompt(userAnswer, step, stage, recentQuestions, conversationH
     recentQuestions,
     normalizedHistory,
     recentContext,
+    context, // 🔥 新增：传递完整的context对象
   )
 }
 
@@ -1087,6 +1127,7 @@ function buildStepSpecificPrompt(
   recentQuestions,
   conversationHistory = [],
   recentContext = { isEmpty: true },
+  context = {}, // 🔥 新增：接收context参数
 ) {
   const stepObj = STEP_OBJECTIVES[step]
   const currentStage = stepObj?.[stage] || stepObj
@@ -1131,8 +1172,44 @@ function buildStepSpecificPrompt(
     )
     const hasRichHistory = step2to5Messages.length > 5
 
-    if (hasRichHistory) {
-      contextualInfo += `\n学生已完成Step2-5的讨论，现在进行方案整合和补充`
+    // 🔥 提取context中的信息
+    let previousStepsInfo = ''
+    if (context?.previousSteps) {
+      const steps = context.previousSteps
+      previousStepsInfo = '\n\n【学生在前面步骤的确认内容】\n'
+      if (steps.step2) previousStepsInfo += `• Step2（问题分析）:\n${steps.step2}\n\n`
+      if (steps.step3) previousStepsInfo += `• Step3（策略设计）:\n${steps.step3}\n\n`
+      if (steps.step4) previousStepsInfo += `• Step4（提示词设计）:\n${steps.step4}\n\n`
+      if (steps.step5) previousStepsInfo += `• Step5（应急调整）:\n${steps.step5}\n\n`
+    }
+
+    // 🔥 学生的初稿内容（完整展示）
+    let initialDraftInfo = ''
+    if (context?.initialDraft) {
+      initialDraftInfo = `\n\n【学生的方案初稿（完整内容）】\n${context.initialDraft}\n`
+    }
+
+    // 🔥 当前方案内容（完整展示）
+    let currentPlanInfo = ''
+    if (context?.currentPlan && context.currentPlan.trim()) {
+      currentPlanInfo = `\n\n【学生当前编辑的方案（完整内容）】\n${context.currentPlan}\n`
+    }
+
+    // 🔥 方案编辑情况统计
+    let planComparisonInfo = ''
+    if (context?.initialDraft && context?.currentPlan) {
+      const draftLength = context.initialDraft.replace(/\s/g, '').length
+      const currentLength = context.currentPlan.replace(/\s/g, '').length
+      const hasEdited = context.initialDraft.trim() !== context.currentPlan.trim()
+
+      planComparisonInfo = `\n\n【方案编辑情况】\n`
+      planComparisonInfo += `• 初稿长度: ${draftLength}字\n`
+      planComparisonInfo += `• 当前方案长度: ${currentLength}字\n`
+      planComparisonInfo += `• 是否编辑过: ${hasEdited ? '是' : '否'}\n`
+
+      if (hasEdited) {
+        planComparisonInfo += `• 变化: ${currentLength > draftLength ? '增加了' : '减少了'}${Math.abs(currentLength - draftLength)}字\n`
+      }
     }
 
     return `学生回答："${userAnswer}"
@@ -1140,11 +1217,25 @@ function buildStepSpecificPrompt(
 【当前目标】${currentStage.focus}
 【上下文】${contextualInfo}
 ${conversationSummary}
-【对话连贯要求】基于学生的回答内容和前面步骤的讨论，给出自然承接的引导
+${previousStepsInfo}
+${initialDraftInfo}
+${currentPlanInfo}
+${planComparisonInfo}
+
+【对话连贯要求】
+基于学生的回答内容和前面步骤的讨论，给出自然承接的引导
+
+【特别注意 - 针对"给初稿提建议"类问题】
+如果学生明确要求对初稿提建议或优化建议，你应该：
+1. 确认你已看到完整的初稿内容（在【学生的方案初稿】部分）
+2. 仔细分析初稿的结构、内容完整性、逻辑连贯性
+3. 给出2-3条具体、可操作的改进建议
+4. 建议应该具体到某个部分或某个方面，避免泛泛而谈
+5. 用自然友好的语气，像朋友间的讨论
 
 【引导要求 - 语气非常重要】
 1. 用自然语气确认学生观点（5-8字，如"看来你想得很周到"）
-2. 结合前面步骤的分析，提出整合性问题（25字内）
+2. 结合前面步骤的分析和初稿内容，提出整合性问题或建议（50字内）
 3. 引导学生思考如何完善整体方案
 4. 保持对话的自然流畅性，像朋友间的讨论
 
@@ -1376,6 +1467,7 @@ export default async function handler(req, res) {
       stageNum,
       recentQuestions,
       normalizedHistory,
+      enhancedContext, // 🔥 添加：传递enhancedContext（包含initialDraft、currentPlan、previousSteps）
     )
 
     console.log(`🤖 调用增强版AI引导`)

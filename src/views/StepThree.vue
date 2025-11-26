@@ -1,5 +1,10 @@
 <template>
   <div class="step-three-container">
+    <!-- 🔥 新增：步骤锁定提示（仅在锁定时显示） -->
+    <div v-if="isStepLocked" class="step-locked-banner">
+      <span class="lock-icon">🔒</span>
+      <span>此步骤已确认答案并锁定，仅查看。</span>
+    </div>
     <!-- 对话轮次限制提示 -->
     <div
       v-if="conversationCount >= 4"
@@ -158,7 +163,7 @@
                 </div>
                 <div class="progress-steps">
                   <span class="step active">📝 理解策略</span>
-                  <span class="step" :class="{ active: loadingStep >= 2 }">⚖️ 对比分析</span>
+                  <span class="step" :class="{ active: loadingStep >= 2 }">⚖️对比分析</span>
                   <span class="step" :class="{ active: loadingStep >= 3 }">💡 优化建议</span>
                 </div>
               </div>
@@ -180,17 +185,16 @@
           rows="3"
         ></textarea>
         <div class="input-toolbar">
+          <!-- 修改按钮显示文本 -->
           <button
             class="help-button"
             @click="requestHelp"
-            :disabled="isGenerating || isConversationLimitReached || !canUseHelp"
-            :title="getHelpButtonTitle"
+            :disabled="isStepLocked || !canUseHelp"
+            :title="isStepLocked ? '步骤已锁定' : getHelpButtonTitle"
           >
-            <span class="help-icon">💬</span>
-            我想提问
-            <span v-if="canUseHelp" class="help-badge">
-              {{ helpSystem.maxCycles - helpSystem.totalCycles }}
-            </span>
+            <span class="help-icon">💡</span>
+            <span class="help-text">我想提问</span>
+            <span class="help-counter"> {{ remainingCycles }}/{{ helpSystem.maxCycles }} </span>
           </button>
           <div class="action-buttons">
             <button
@@ -435,7 +439,7 @@
 </template>
 
 <script setup lang="ts">
-import { ref, computed, onMounted, nextTick, reactive, watch } from 'vue'
+import { ref, computed, onMounted, onBeforeUnmount, nextTick, reactive, watch } from 'vue'
 import { useRouter } from 'vue-router'
 import { simpleStorage } from '../../api/utils/simpleStorage'
 import { trackStep3Event } from '../../src/utils/tracking'
@@ -444,6 +448,14 @@ import { trackStep3Event } from '../../src/utils/tracking'
 const finalAnswerSnapshot = ref('') // 本步最终答案快照
 const finalAnswerConfirmed = ref(false) // 是否已确认最终答案
 const editableFinalAnswer = ref('') // 可编辑的最终答案（用于弹窗中编辑）
+
+// 🔥 新增：步骤锁定状态
+const isStepLocked = ref(false)
+
+// 🔥 新增：计算剩余次数
+const remainingCycles = computed(() => {
+  return helpSystem.maxCycles - helpSystem.totalCycles
+})
 
 // 🔥 新增：帮助系统状态管理
 const helpSystem = reactive({
@@ -531,17 +543,6 @@ interface StoredMessage {
   step?: number
 }
 
-// 定义API响应类型
-interface APIResponse {
-  response: string
-  metadata?: {
-    step?: number
-    stage?: number
-    guidanceMode?: string
-    suggestsCompletion?: boolean
-  }
-}
-
 // 🔥 定义 event_data 的类型
 interface EventData {
   helpMode?: 'refine' | 'example' | 'custom'
@@ -575,14 +576,14 @@ interface ConversationData {
   event_data?: EventData
 }
 
-// 🔥 定义 Step3 数据结构
-interface Step3Data {
-  sessionId: string
-  conversationCount: number
-  stageCompletionStatus: boolean[]
-  messages: StoredMessage[]
-  currentStage: number
-  isCompleted: boolean
+// 🔥 定义步骤数据类型 - 添加快照字段
+interface StepData {
+  sessionId?: string
+  conversationCount?: number
+  stageCompletionStatus?: boolean[]
+  messages?: StoredMessage[]
+  currentStage?: number
+  isCompleted?: boolean
   helpSystem?: {
     totalCycles: number
     maxCycles: number
@@ -593,16 +594,23 @@ interface Step3Data {
     }
     isInCycle: boolean
   }
-  // 🔥 新增快照字段
+  // 🔥 新增字段
   finalAnswerSnapshot?: string
   finalAnswerConfirmed?: boolean
+  lockedAt?: string // 🔥 新增：锁定时间戳
+}
+
+// 🔥 修复：定义最终快照保存数据结构
+interface FinalSnapshotData extends ConversationData {
+  isFinalSnapshot?: boolean
+  finalAnswerContent?: string
 }
 
 // 🔥 从存储中恢复或初始化对话数据
-const rawStepData = simpleStorage.getStepData(3) as Step3Data | null
+const rawStepData = simpleStorage.getStepData(3) as StepData | null
 
 // 🔥 防御性函数：确保 sessionId 始终有效
-const getValidSessionId = (rawData?: Step3Data | null): string => {
+const getValidSessionId = (rawData?: StepData | null): string => {
   // 优先使用历史数据的 sessionId
   if (rawData?.sessionId) {
     console.log('✅ Step3: 使用历史 sessionId:', rawData.sessionId)
@@ -620,6 +628,7 @@ const getValidSessionId = (rawData?: Step3Data | null): string => {
   return id
 }
 
+// 🔥 修复：添加防御性检查处理 messages
 const conversationData = reactive<{
   sessionId: string
   conversationCount: number
@@ -628,11 +637,11 @@ const conversationData = reactive<{
   currentStage: number
   isCompleted: boolean
 }>(
-  rawStepData
+  rawStepData && rawStepData.messages
     ? {
-        sessionId: getValidSessionId(rawStepData), // 🔥 使用防御性函数
-        conversationCount: rawStepData.conversationCount,
-        stageCompletionStatus: rawStepData.stageCompletionStatus,
+        sessionId: getValidSessionId(rawStepData),
+        conversationCount: rawStepData.conversationCount ?? 0, // 🔥 修复：使用 ?? 0
+        stageCompletionStatus: rawStepData.stageCompletionStatus ?? [false],
         messages: rawStepData.messages.map(
           (msg: StoredMessage): Message => ({
             id: msg.id,
@@ -643,11 +652,11 @@ const conversationData = reactive<{
             timestamp: msg.timestamp,
           }),
         ),
-        currentStage: 1, // Step3 始终为单阶段
+        currentStage: 1,
         isCompleted: rawStepData.isCompleted || false,
       }
     : {
-        sessionId: getValidSessionId(null), // 🔥 使用防御性函数
+        sessionId: getValidSessionId(null),
         conversationCount: 0,
         stageCompletionStatus: [false],
         messages: [],
@@ -739,7 +748,7 @@ watch(conversationCount, async (newCount) => {
 
 // 🔥 保存帮助系统状态到 localStorage
 function saveHelpSystemState() {
-  const stepData = simpleStorage.getStepData(3) as Step3Data | null
+  const stepData = simpleStorage.getStepData(3) as StepData | null
   if (stepData) {
     stepData.helpSystem = {
       totalCycles: helpSystem.totalCycles,
@@ -822,30 +831,24 @@ async function submitAnswer() {
   }
 }
 
-// 🔥 打开帮助弹窗
+// 🔥 修改：打开帮助弹窗 - 不再消耗次数
 function requestHelp() {
   if (isGenerating.value || isConversationLimitReached.value) return
 
-  // 检查是否还能使用帮助功能
+  // 检查是否还能使用帮助功能（基于总次数）
   if (!canUseHelp.value) {
     showHelpLimitDialog.value = true
     return
   }
 
-  // 如果不在周期中，开启新周期
-  if (!helpSystem.isInCycle) {
-    helpSystem.totalCycles++
-    helpSystem.isInCycle = true
-    console.log(`🆕 Step3 - 开启第 ${helpSystem.totalCycles} 个帮助周期`)
-  }
-
-  // 检查当前周期是否还有可用模式
-  if (!hasAvailableModesInCycle.value) {
+  // 🔥 修改：如果当前在周期中且所有模式都用完了，显示周期限制提示
+  if (helpSystem.isInCycle && !hasAvailableModesInCycle.value) {
     showCycleLimitDialog.value = true
     return
   }
 
-  // 🔥 埋点 - 点击帮助按钮
+  // 🔥 关键修改：不在这里增加 totalCycles，只打开弹窗
+  // 埋点 - 点击帮助按钮
   trackStep3Event(
     'step3_help_button_click',
     conversationData.sessionId,
@@ -854,9 +857,10 @@ function requestHelp() {
     {
       currentInputLength: userAnswer.value.length,
       hasInput: userAnswer.value.length > 0,
-      helpCycle: helpSystem.totalCycles,
+      remainingCycles: remainingCycles.value,
+      isInCycle: helpSystem.isInCycle,
       availableModes: Object.entries(availableHelpModes.value)
-        .filter(([_, available]) => available)
+        .filter(([, available]) => available)
         .map(([mode]) => mode)
         .join(','),
     },
@@ -894,9 +898,16 @@ function submitCustomQuestion() {
   executeHelp('custom', customQuestion.value)
 }
 
-// 🔥 执行帮助请求
+// 🔥 修改：执行帮助请求 - 在这里才真正消耗次数
 async function executeHelp(mode: 'refine' | 'example' | 'custom', customQuestionText?: string) {
   showHelpDialog.value = false
+
+  // 🔥 关键修改：在这里开启新周期（如果需要）
+  if (!helpSystem.isInCycle) {
+    helpSystem.totalCycles++
+    helpSystem.isInCycle = true
+    console.log(`🆕 Step3 - 开启第 ${helpSystem.totalCycles} 个帮助周期`)
+  }
 
   // 标记该模式在当前周期已使用
   helpSystem.currentCycleUsed[mode] = true
@@ -932,7 +943,7 @@ async function executeHelp(mode: 'refine' | 'example' | 'custom', customQuestion
   simpleStorage.updateConversationCount(3, conversationData.conversationCount + 1)
   conversationData.conversationCount += 1
 
-  // 🔥 埋点 - 使用帮助
+  // 埋点 - 使用帮助
   await trackStep3Event(
     'step3_help_request',
     conversationData.sessionId,
@@ -942,10 +953,10 @@ async function executeHelp(mode: 'refine' | 'example' | 'custom', customQuestion
       helpMode: mode,
       helpCycle: helpSystem.totalCycles,
       cycleUsedModes: Object.entries(helpSystem.currentCycleUsed)
-        .filter(([_, used]) => used)
+        .filter(([, used]) => used)
         .map(([mode]) => mode)
         .join(','),
-      remainingCycles: helpSystem.maxCycles - helpSystem.totalCycles,
+      remainingCycles: remainingCycles.value,
     },
   )
 
@@ -1101,8 +1112,15 @@ const handleInput = () => {
   // 输入处理
 }
 
+// 🔥 修改：打开确认弹窗 - 锁定后直接跳转
 const handleNextStep = () => {
-  // 🔥 初始化可编辑内容为当前快照
+  // 如果已经锁定，直接跳转到下一步
+  if (isStepLocked.value) {
+    router.push('/experiment/step4')
+    return
+  }
+
+  // 未锁定时，弹出编辑确认弹窗
   editableFinalAnswer.value = finalAnswerSnapshot.value
   showConfirmDialog.value = true
 }
@@ -1111,20 +1129,59 @@ const closeConfirmDialog = () => {
   showConfirmDialog.value = false
 }
 
-// 🔥 确认进入下一步
+// 🔥 新增：保存最终快照到数据库的函数
+const saveFinalSnapshotToDB = async (snapshotData: FinalSnapshotData): Promise<void> => {
+  try {
+    const experimentId = localStorage.getItem('experimentId')
+    const studentName = localStorage.getItem('studentName')
+
+    await fetch('/api/conversations/save', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'X-Experiment-ID': experimentId || '',
+      },
+      body: JSON.stringify({
+        ...snapshotData,
+        experimentId,
+        studentName,
+      }),
+    })
+
+    console.log('✅ Step3 - 最终快照已保存到数据库')
+  } catch (error) {
+    console.error('❌ Step3 - 保存最终快照失败:', error)
+  }
+}
+
 const confirmNextStep = async () => {
-  // 🔥 使用编辑后的内容作为最终快照
+  // 使用编辑后的内容作为最终快照
   finalAnswerSnapshot.value = editableFinalAnswer.value.trim()
   finalAnswerConfirmed.value = true
   showConfirmDialog.value = false
 
-  // 🔥 1. 保存到 localStorage（Step6 会读取）
+  // 1. 🔥 修改：保存到 localStorage（添加 sessionId）
   simpleStorage.setItem('step3_final_answer', {
     content: finalAnswerSnapshot.value,
+    sessionId: conversationData.sessionId, // 🔥 新增
     confirmedAt: new Date().toISOString(),
   })
 
-  // 🔥 2. 埋点 - 点击继续下一步
+  // 2. 🔥 新增：保存带 isFinalSnapshot 标志的记录到数据库
+  await saveFinalSnapshotToDB({
+    sessionId: conversationData.sessionId,
+    step: 3,
+    stage: currentStage.value,
+    userInput: '[FINAL_SNAPSHOT]',
+    aiResponse: '',
+    conversationCount: conversationData.conversationCount,
+    timestamp: new Date(),
+    context: 'step3_final_confirmation',
+    isFinalSnapshot: true, // 🔥 关键字段
+    finalAnswerContent: finalAnswerSnapshot.value, // 🔥 完整内容
+  })
+
+  // 3. 埋点 - 点击继续下一步
   await trackStep3Event(
     'step3_next_step_click',
     conversationData.sessionId,
@@ -1137,16 +1194,18 @@ const confirmNextStep = async () => {
     },
   )
 
-  // 🔥 3. 保存到 storage（包含快照）
+  // 4. 保存到 storage（包含快照和锁定标记）
   saveToStorage()
 
-  // 🔥 4. 跳转下一步
-  goToNextStep()
-}
+  // 5. 🔒 锁定当前步骤
+  isStepLocked.value = true
+  const updatedStepData = simpleStorage.getStepData(3) as StepData
+  if (updatedStepData) {
+    updatedStepData.lockedAt = new Date().toISOString()
+    simpleStorage.saveStepData(3, updatedStepData)
+  }
 
-const goToNextStep = () => {
-  simpleStorage.updateCurrentStep(4)
-  saveProgressToLocal()
+  // 6. 跳转到下一步
   router.push('/experiment/step4')
 }
 
@@ -1363,21 +1422,24 @@ const saveToStorage = () => {
 
 // 生命周期
 const showContentSequentially = async () => {
-  const stepData = simpleStorage.getStepData(3) as Step3Data | null
+  const stepData = simpleStorage.getStepData(3) as StepData | null
   if (stepData) {
     conversationData.conversationCount = stepData.conversationCount || 0
     answerSubmitted.value = stepData.isCompleted || false
 
-    conversationData.messages = stepData.messages.map(
-      (msg: StoredMessage): Message => ({
-        id: msg.id,
-        type: msg.type,
-        content: msg.content,
-        step: msg.step || 3,
-        stage: msg.stage || 1,
-        timestamp: msg.timestamp,
-      }),
-    )
+    // 🔥 修复：添加防御性检查
+    if (stepData.messages && Array.isArray(stepData.messages)) {
+      conversationData.messages = stepData.messages.map(
+        (msg: StoredMessage): Message => ({
+          id: msg.id,
+          type: msg.type,
+          content: msg.content,
+          step: msg.step || 3,
+          stage: msg.stage || 1,
+          timestamp: msg.timestamp,
+        }),
+      )
+    }
 
     console.log('💾 Step3 - 从存储恢复数据:', {
       conversationCount: conversationData.conversationCount,
@@ -1400,23 +1462,106 @@ const showContentSequentially = async () => {
   }
 }
 
-// 🔥 组件挂载时
 onMounted(async () => {
   console.log('🎬 Step3 组件已挂载')
 
-  // 🔥 埋点 - 进入 Step3
+  // 🔥 ========== 智能清理 + 恢复数据（合并逻辑） ==========
+  const currentSessionId = simpleStorage.getSessionId()
+
+  // 🔥 检查确认数据（只定义一次）
+  let confirmedData = simpleStorage.getItem<{
+    content: string
+    confirmedAt?: string
+    sessionId?: string
+  }>('step3_final_answer')
+
+  // 🔥 情况1：存在确认数据，但是不同的 sessionId（说明是新实验）
+  if (confirmedData && confirmedData.sessionId && confirmedData.sessionId !== currentSessionId) {
+    console.log('🧹 Step3 - 检测到新实验，清除旧的锁定状态')
+    console.log('  旧 sessionId:', confirmedData.sessionId)
+    console.log('  新 sessionId:', currentSessionId)
+
+    // 清除所有锁定相关数据
+    simpleStorage.removeItem('step3_final_answer')
+
+    // 更新 step3_data，移除 lockedAt
+    const stepData = simpleStorage.getStepData(3) as StepData | null
+    if (stepData) {
+      delete stepData.lockedAt
+      stepData.finalAnswerConfirmed = false
+      stepData.finalAnswerSnapshot = ''
+      simpleStorage.saveStepData(3, stepData)
+    }
+
+    // 🔥 埋点 - 自动清理旧数据
+    await trackStep3Event('step3_auto_unlock', currentSessionId, 1, 0, {
+      reason: 'new_session_detected',
+      oldSessionId: confirmedData.sessionId,
+      newSessionId: currentSessionId,
+    })
+
+    console.log('✅ Step3 - 旧锁定状态已自动清除')
+
+    // 🔥 关键：清除后重置 confirmedData 为 null
+    confirmedData = null
+  }
+
+  // 🔥 ========== 恢复数据（只有在没被清除的情况下才恢复） ==========
+
+  // 第一步：恢复帮助系统状态（最优先）
+  const stepData = simpleStorage.getStepData(3) as StepData | null
+  if (stepData?.helpSystem) {
+    Object.assign(helpSystem, stepData.helpSystem)
+    console.log('💾 Step3 - 帮助系统状态已恢复:', helpSystem)
+  }
+
+  // 第二步：检查是否已最终确认（锁定检查）- 使用 confirmedData
+  if (confirmedData && stepData?.finalAnswerConfirmed) {
+    finalAnswerConfirmed.value = true
+    finalAnswerSnapshot.value = stepData.finalAnswerSnapshot || ''
+
+    // 🔒 如果已确认，锁定步骤
+    isStepLocked.value = true
+    console.log('🔒 Step3 - 步骤已锁定，不可编辑')
+  }
+
+  // 第三步：埋点 - 进入 Step3
   await trackStep3Event(
     'step3_enter',
     conversationData.sessionId,
-    conversationData.currentStage,
+    currentStage.value,
     conversationData.conversationCount,
     {
-      initialStage: conversationData.currentStage,
+      initialStage: currentStage.value,
       hasHistory: conversationData.messages.length > 0,
+      hasSnapshot: !!finalAnswerSnapshot.value,
+      isLocked: isStepLocked.value,
     },
   )
 
+  // 第四步：显示内容动画
   showContentSequentially()
+})
+
+// 🔥 新增：watch 监听帮助系统状态 - 自动保存
+watch(
+  () => ({ ...helpSystem }),
+  (newState) => {
+    if (!isStepLocked.value) {
+      // 只在未锁定时保存
+      saveHelpSystemState()
+      console.log('🔄 Step3 - 帮助系统状态自动保存:', newState)
+    }
+  },
+  { deep: true },
+)
+
+// 🔥 新增：组件卸载前保存状态
+onBeforeUnmount(() => {
+  if (!isStepLocked.value) {
+    saveHelpSystemState()
+    console.log('👋 Step3 - 组件卸载前保存帮助系统状态')
+  }
 })
 </script>
 
@@ -1988,19 +2133,6 @@ onMounted(async () => {
 
 .help-icon {
   font-size: 1rem;
-}
-
-/* 🔥 修改：帮助按钮徽章 - 改为低调的蓝色 */
-.help-badge {
-  display: inline-block;
-  background: linear-gradient(45deg, #0ea5e9, #0284c7); /* 改为蓝色 */
-  color: white;
-  font-size: 0.75rem;
-  padding: 0.15rem 0.5rem;
-  border-radius: 12px;
-  margin-left: 0.5rem;
-  font-weight: 600;
-  box-shadow: 0 2px 4px rgba(14, 165, 233, 0.3); /* 改为蓝色阴影 */
 }
 
 .action-buttons {
@@ -2856,5 +2988,44 @@ onMounted(async () => {
   color: #334155;
   font-weight: 500;
   line-height: 1.4;
+}
+
+/* 🔥 新增：步骤锁定提示样式 */
+.step-locked-banner {
+  position: sticky;
+  top: 0;
+  z-index: 100;
+  background: linear-gradient(135deg, #fef3c7 0%, #fde68a 100%);
+  border: 2px solid #f59e0b;
+  border-radius: 0 0 12px 12px;
+  padding: 1rem 1.5rem;
+  margin-bottom: 1rem;
+  display: flex;
+  align-items: center;
+  gap: 1rem;
+  box-shadow: 0 4px 12px rgba(245, 158, 11, 0.3);
+  animation: slideDown 0.5s ease-out;
+}
+
+.lock-icon {
+  font-size: 1.5rem;
+  flex-shrink: 0;
+}
+
+.step-locked-banner span:last-child {
+  color: #92400e;
+  font-weight: 600;
+  font-size: 0.95rem;
+}
+
+@keyframes slideDown {
+  from {
+    transform: translateY(-100%);
+    opacity: 0;
+  }
+  to {
+    transform: translateY(0);
+    opacity: 1;
+  }
 }
 </style>

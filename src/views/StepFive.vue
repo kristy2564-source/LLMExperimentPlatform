@@ -1,5 +1,10 @@
 <template>
   <div class="step-five-container">
+    <!-- 🔥 新增：步骤锁定提示（仅在锁定时显示） -->
+    <div v-if="isStepLocked" class="step-locked-banner">
+      <span class="lock-icon">🔒</span>
+      <span>此步骤已确认答案并锁定，仅查看。</span>
+    </div>
     <!-- 对话轮次限制提示 -->
     <div
       v-if="conversationCount >= 4"
@@ -186,15 +191,12 @@
           <button
             class="help-button"
             @click="requestHelp"
-            :disabled="isGenerating || isConversationLimitReached || !canUseHelp"
-            :title="getHelpButtonTitle"
+            :disabled="isStepLocked || isGenerating || !canUseHelp"
+            :title="isStepLocked ? '步骤已锁定' : getHelpButtonTitle"
           >
-            <span class="help-icon">💬</span>
-            我想提问
-            <!-- 🔥 新增：显示剩余次数 -->
-            <span v-if="canUseHelp" class="help-badge">
-              {{ helpSystem.maxCycles - helpSystem.totalCycles }}
-            </span>
+            <span class="help-icon">💡</span>
+            <span class="help-text">我想提问</span>
+            <span class="help-counter"> {{ remainingCycles }}/{{ helpSystem.maxCycles }} </span>
           </button>
           <div class="action-buttons">
             <button
@@ -450,17 +452,11 @@ import { useRouter } from 'vue-router'
 import { simpleStorage } from '../../api/utils/simpleStorage'
 import { trackStep5Event } from '../../src/utils/tracking.ts'
 
-// 定义组件通信
+// 1️⃣ ========== 组件通信和路由 ==========
 const emit = defineEmits(['update-progress', 'show-next-steps'])
-
 const router = useRouter()
 
-// 🔥 新增：最终答案快照相关
-const finalAnswerSnapshot = ref('') // 本步最终答案快照
-const finalAnswerConfirmed = ref(false) // 是否已确认最终答案
-const editableFinalAnswer = ref('') // 可编辑的最终答案（用于弹窗中编辑）
-
-// 🔥 定义消息类型
+// 2️⃣ ========== 类型定义 ==========
 interface Message {
   id?: string
   type: 'user' | 'ai' | 'system'
@@ -470,7 +466,6 @@ interface Message {
   timestamp: string | Date
 }
 
-// 🔥 定义存储的消息类型
 interface StoredMessage {
   id: string
   type: 'user' | 'ai' | 'system'
@@ -480,14 +475,12 @@ interface StoredMessage {
   step?: number
 }
 
-// 🔥 定义 Step5 数据结构
 interface Step5Data {
   conversationCount: number
   stageCompletionStatus: boolean[]
   messages: StoredMessage[]
   currentStage: number
   isCompleted: boolean
-  // 🔥 新增：帮助系统状态
   helpSystem?: {
     totalCycles: number
     maxCycles: number
@@ -498,16 +491,18 @@ interface Step5Data {
     }
     isInCycle: boolean
   }
-  // 🔥 新增：应急方案元数据
   emergencyStrategyMetadata?: {
     mentionedFactors: string[]
     hasQuantitativeAnalysis: boolean
     hasCostBenefit: boolean
     submittedAt?: string
   }
+  lockedAt?: string
+  // 🔥 新增：快照字段
+  finalAnswerSnapshot?: string
+  finalAnswerConfirmed?: boolean
 }
 
-// 🔥 定义 event_data 的类型
 interface Step5EventData {
   helpMode?: 'refine' | 'example' | 'custom'
   customQuestion?: string
@@ -530,7 +525,6 @@ interface Step5EventData {
   [key: string]: string | number | boolean | undefined
 }
 
-// 定义数据库保存的数据结构
 interface ConversationData {
   sessionId: string
   step: number
@@ -546,10 +540,52 @@ interface ConversationData {
   event_data?: Step5EventData
 }
 
-// 🔥 新增：帮助系统状态管理
+// 3️⃣ ========== 常量定义 ==========
+const MAX_CONVERSATIONS = 5
+
+// 4️⃣ ========== 基础 Ref 变量（按功能分组） ==========
+
+// 🔥 UI 状态
+const showInfoCard = ref(false)
+const showPrompt = ref(false)
+const showAnswerArea = ref(false)
+const showConversationWarning = ref(false)
+const showConfirmDialog = ref(false)
+const isGenerating = ref(false)
+const loadingStep = ref(1)
+
+// 🔥 用户输入和提交
+const userAnswer = ref('')
+const answerSubmitted = ref(false)
+
+// 🔥 对话管理
+const conversationCount = ref(0)
+const conversationRound = ref(0)
+const messages = ref<Message[]>([])
+const conversationHistory = ref<Message[]>([])
+
+// 🔥 最终答案和锁定
+const finalAnswerSnapshot = ref('')
+const finalAnswerConfirmed = ref(false)
+const editableFinalAnswer = ref('')
+const isStepLocked = ref(false)
+
+// 🔥 帮助系统
+const showHelpDialog = ref(false)
+const helpMode = ref<'refine' | 'example' | 'custom' | null>(null)
+const customQuestion = ref('')
+const showHelpLimitDialog = ref(false)
+const showCycleLimitDialog = ref(false)
+
+// 🔥 DOM 引用
+const chatScrollArea = ref<HTMLElement | null>(null)
+
+// 5️⃣ ========== Reactive 对象 ==========
+
+// 🔥 帮助系统状态
 const helpSystem = reactive({
   totalCycles: 0,
-  maxCycles: 4, // 🔥 保持4个周期
+  maxCycles: 4,
   currentCycleUsed: {
     refine: false,
     example: false,
@@ -558,12 +594,39 @@ const helpSystem = reactive({
   isInCycle: false,
 })
 
-// 🔥 新增：计算属性 - 帮助功能是否可用
+// 6️⃣ ========== 工具函数（在 reactive 对象之前定义） ==========
+
+// 🔥 防御性函数：确保 sessionId 始终有效
+const getSessionId = (): string => {
+  const id = simpleStorage.getSessionId()
+  if (!id) {
+    console.error('⚠️ Step5: sessionId 获取失败，创建新 session')
+    return simpleStorage.initSession()
+  }
+  return id
+}
+
+// 7️⃣ ========== 会话数据对象（现在可以安全地使用前面定义的变量） ==========
+
+// 🔥 会话数据管理对象
+const conversationData = reactive({
+  sessionId: getSessionId(),
+  conversationCount: 0, // ✅ 使用初始值而不是 .value
+  messages: [] as Message[], // ✅ 使用空数组
+  currentStage: 1,
+  isCompleted: false, // ✅ 使用初始值
+})
+
+// 8️⃣ ========== Computed 属性 ==========
+
+const remainingCycles = computed(() => {
+  return helpSystem.maxCycles - helpSystem.totalCycles
+})
+
 const canUseHelp = computed(() => {
   return helpSystem.totalCycles < helpSystem.maxCycles
 })
 
-// 🔥 新增：计算属性 - 当前周期剩余可用模式
 const availableHelpModes = computed(() => {
   return {
     refine: !helpSystem.currentCycleUsed.refine,
@@ -572,12 +635,10 @@ const availableHelpModes = computed(() => {
   }
 })
 
-// 🔥 新增：计算属性 - 当前周期是否还有可用模式
 const hasAvailableModesInCycle = computed(() => {
   return Object.values(availableHelpModes.value).some((available) => available)
 })
 
-// 🔥 新增：帮助按钮 title 计算属性
 const getHelpButtonTitle = computed(() => {
   if (!canUseHelp.value) {
     return '已达到帮助次数上限'
@@ -588,39 +649,6 @@ const getHelpButtonTitle = computed(() => {
   return '点击获取智能帮助'
 })
 
-// 🔥 新增：帮助弹窗相关状态
-const showHelpDialog = ref(false)
-const helpMode = ref<'refine' | 'example' | 'custom' | null>(null)
-const customQuestion = ref('')
-const showHelpLimitDialog = ref(false)
-const showCycleLimitDialog = ref(false)
-
-// 状态管理
-const showInfoCard = ref(false)
-const showPrompt = ref(false)
-const showAnswerArea = ref(false)
-const showConversationWarning = ref(false)
-const showConfirmDialog = ref(false)
-const userAnswer = ref('')
-const answerSubmitted = ref(false)
-const isGenerating = ref(false)
-const loadingStep = ref(1)
-
-// 对话轮次控制
-const conversationCount = ref(0)
-const MAX_CONVERSATIONS = 5
-
-// 对话轮次追踪
-const conversationRound = ref(0)
-
-// 对话历史存储为 Message 数组
-const messages = ref<Message[]>([])
-const conversationHistory = ref<Message[]>([])
-
-// 滚动容器引用
-const chatScrollArea = ref<HTMLElement | null>(null)
-
-// 计算属性
 const canSubmit = computed(() => userAnswer.value.trim().length > 0)
 
 const isConversationLimitReached = computed(() => conversationCount.value >= MAX_CONVERSATIONS)
@@ -632,7 +660,23 @@ const inputPlaceholder = computed(() => {
   return '分析这种极端情况需要什么应急措施......'
 })
 
-// 🔥 监听对话轮次变化（添加埋点）
+// 9️⃣ ========== Watch 监听器 ==========
+
+// 🔥 同步 conversationData
+watch([conversationCount, answerSubmitted], () => {
+  conversationData.conversationCount = conversationCount.value
+  conversationData.isCompleted = answerSubmitted.value
+})
+
+watch(
+  messages,
+  (newMessages) => {
+    conversationData.messages = newMessages
+  },
+  { deep: true },
+)
+
+// 🔥 监听对话轮次变化
 watch(conversationCount, async (newCount) => {
   if (newCount >= 4) {
     showConversationWarning.value = true
@@ -863,7 +907,7 @@ const submitAnswer = async () => {
   }
 }
 
-// 🔥 新增：打开帮助弹窗（添加埋点和周期管理）
+// 🔥 修改：打开帮助弹窗（不减少次数）
 function requestHelp() {
   if (isGenerating.value || isConversationLimitReached.value) return
 
@@ -873,30 +917,25 @@ function requestHelp() {
     return
   }
 
-  // 如果不在周期中，开启新周期
-  if (!helpSystem.isInCycle) {
-    helpSystem.totalCycles++
-    helpSystem.isInCycle = true
-    console.log(`🆕 开启第 ${helpSystem.totalCycles} 个帮助周期`)
-  }
-
-  // 检查当前周期是否还有可用模式
-  if (!hasAvailableModesInCycle.value) {
+  // ✅ 修改：不在这里开启周期，只是检查
+  // 如果已经在周期中，检查当前周期是否还有可用模式
+  if (helpSystem.isInCycle && !hasAvailableModesInCycle.value) {
     showCycleLimitDialog.value = true
     return
   }
 
-  // 🔥 埋点 - 点击帮助按钮
+  // 🔥 埋点 - 点击帮助按钮（但还没使用）
   trackStep5Event('step5_help_button_click', getSessionId(), conversationCount.value, {
     currentInputLength: userAnswer.value.length,
     hasInput: userAnswer.value.length > 0,
-    helpCycle: helpSystem.totalCycles,
+    helpCycle: helpSystem.totalCycles, // 当前已使用的周期数
     availableModes: Object.entries(availableHelpModes.value)
-      .filter(([_, available]) => available)
+      .filter(([, available]) => available)
       .map(([mode]) => mode)
       .join(','),
   })
 
+  // ✅ 只是打开弹窗
   showHelpDialog.value = true
 }
 
@@ -940,10 +979,18 @@ function submitCustomQuestion() {
   executeHelp('custom', customQuestion.value)
 }
 
-// 🔥 新增：执行帮助请求（添加埋点和周期管理）
+// 🔥 修改：执行帮助请求（在这里才减少次数）
 async function executeHelp(mode: 'refine' | 'example' | 'custom', customQuestionText?: string) {
   // 关闭弹窗
   showHelpDialog.value = false
+
+  // ✅ 关键修改：在这里开启新周期并减少次数
+  // 只有真正使用了某个具体求助方式时才会减少次数
+  if (!helpSystem.isInCycle) {
+    helpSystem.totalCycles++ // ✅ 在这里才-1
+    helpSystem.isInCycle = true
+    console.log(`🆕 Step5 - 开启第 ${helpSystem.totalCycles} 个帮助周期`)
+  }
 
   // 标记该模式在当前周期已使用
   helpSystem.currentCycleUsed[mode] = true
@@ -980,13 +1027,13 @@ async function executeHelp(mode: 'refine' | 'example' | 'custom', customQuestion
   // 增加对话计数
   conversationCount.value += 1
 
-  // 🔥 埋点 - 使用帮助
+  // 🔥 埋点 - 真正使用帮助（在这里才记录使用）
   await trackStep5Event('step5_help_request', getSessionId(), conversationCount.value, {
     helpMode: mode,
-    helpCycle: helpSystem.totalCycles,
+    helpCycle: helpSystem.totalCycles, // 使用了第几个周期
     cycleUsedModes: Object.entries(helpSystem.currentCycleUsed)
-      .filter(([_, used]) => used)
-      .map(([mode]) => mode)
+      .filter(([, used]) => used)
+      .map(([m]) => m)
       .join(','),
     remainingHelps: helpSystem.maxCycles - helpSystem.totalCycles,
   })
@@ -1152,6 +1199,12 @@ async function callEnhancedHelpAPI(
 
 // 🔥 修改：打开确认弹窗 - 初始化可编辑内容
 const handleNextStep = () => {
+  // 🔥 如果已经锁定，直接跳转到下一步
+  if (isStepLocked.value) {
+    router.push('/experiment/step6') // 注意：Step5 下一步是 Step6
+    return
+  }
+
   // 生成快照
   finalAnswerSnapshot.value = generateEmergencySnapshot()
   // 初始化可编辑内容为当前快照
@@ -1165,30 +1218,44 @@ const closeConfirmDialog = () => {
 
 // 🔥 修改：确认进入下一步 - 保存编辑后的快照
 const confirmNextStep = async () => {
-  // 使用编辑后的内容作为最终快照
+  // 1. 使用编辑后的内容作为最终快照
   finalAnswerSnapshot.value = editableFinalAnswer.value.trim()
   finalAnswerConfirmed.value = true
   showConfirmDialog.value = false
 
-  // 1. 保存到 localStorage（Step6 会读取）
+  // 2. 🔥 修改：保存到 localStorage（添加 sessionId）
   simpleStorage.setItem('step5_final_answer', {
     content: finalAnswerSnapshot.value,
+    sessionId: getSessionId(), // 🔥 新增
     confirmedAt: new Date().toISOString(),
   })
 
-  // 2. 埋点 - 点击继续下一步
-  await trackStep5Event('step5_next_step_click', getSessionId(), conversationCount.value, {
-    isCompleted: answerSubmitted.value,
-    totalConversations: conversationCount.value,
-    helpUsed: helpSystem.totalCycles,
-    finalAnswerLength: finalAnswerSnapshot.value.length,
-    wasEdited: editableFinalAnswer.value !== generateEmergencySnapshot(),
-  })
+  // 3. 🔥 埋点 - 点击继续下一步
+  await trackStep5Event(
+    'step5_next_step_click',
+    conversationData.sessionId,
+    conversationData.conversationCount,
+    {
+      finalAnswerLength: finalAnswerSnapshot.value.length,
+      wasEdited: editableFinalAnswer.value !== generateEmergencySnapshot(),
+    },
+  )
 
-  // 3. 保存到 storage（包含快照）
+  // 4. 清除临时保存
+  simpleStorage.removeItem('step5_temp_snapshot')
+
+  // 5. 保存到 storage（包含快照）
   saveToStorage()
 
-  // 4. 跳转下一步
+  // 🔥 6. 锁定当前步骤
+  isStepLocked.value = true
+  const updatedStepData = simpleStorage.getStepData(5) as Step5Data | null
+  if (updatedStepData) {
+    ;(updatedStepData as Step5Data & { lockedAt?: string }).lockedAt = new Date().toISOString()
+    simpleStorage.saveStepData(5, updatedStepData)
+  }
+
+  // 7. 跳转到下一步
   goToNextStep()
 }
 
@@ -1351,7 +1418,6 @@ const callAIAPI = async (answer: string, round: number): Promise<string> => {
 // 生成上下文相关的回复
 const generateContextualResponse = (answer: string, round: number): string => {
   const answerLower = answer.toLowerCase()
-  const history = conversationHistory.value.map((msg) => msg.content)
 
   if (round === 1) {
     if (answerLower.includes('应急') || answerLower.includes('紧急')) {
@@ -1522,51 +1588,36 @@ const generateContextualResponse = (answer: string, round: number): string => {
 }
 
 // 保存对话到数据库
+// ✅ 确保这个函数签名正确
 const saveConversationToDB = async (
   userInput: string,
   aiResponse: string,
   context: string,
-  eventData?: Step5EventData,
+  eventData?: Step5EventData, // 这里使用了 Step5EventData
 ): Promise<void> => {
-  try {
-    const experimentId = localStorage.getItem('experimentId')
-    const studentName = localStorage.getItem('studentName')
-
-    await fetch('/api/conversations/save', {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'X-Experiment-ID': experimentId || '',
-      },
-      body: JSON.stringify({
-        sessionId: getSessionId(),
-        step: 5,
-        stage: 1,
-        userInput,
-        aiResponse,
-        conversationCount: conversationCount.value,
-        timestamp: new Date(),
-        context,
-        experimentId,
-        studentName,
-        event_data: eventData,
-      }),
-    })
-
-    console.log('✅ Step5 - 对话已保存到数据库')
-  } catch (error) {
-    console.error('❌ Step5 - 保存对话失败:', error)
+  // 函数内部需要构造 ConversationData 对象
+  const conversationPayload: ConversationData = {
+    sessionId: getSessionId(),
+    step: 5,
+    stage: 1,
+    userInput,
+    aiResponse,
+    conversationCount: conversationCount.value,
+    timestamp: new Date(),
+    context,
+    experimentId: localStorage.getItem('experimentId') || undefined,
+    studentName: localStorage.getItem('studentName') || undefined,
+    event_data: eventData,
   }
-}
 
-// 🔥 防御性函数：确保 sessionId 始终有效
-const getSessionId = (): string => {
-  const id = simpleStorage.getSessionId()
-  if (!id) {
-    console.error('⚠️ Step5: sessionId 获取失败，创建新 session')
-    return simpleStorage.initSession()
-  }
-  return id
+  await fetch('/api/conversations/save', {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      'X-Experiment-ID': localStorage.getItem('experimentId') || '',
+    },
+    body: JSON.stringify(conversationPayload),
+  })
 }
 
 // 生命周期
@@ -1588,23 +1639,79 @@ const showContentSequentially = async () => {
   }
 }
 
-// 🔥 组件挂载时（添加埋点）
+// 🔥 重写：组件挂载时 - 添加智能清理
 onMounted(async () => {
   console.log('🎬 Step5 组件已挂载')
 
-  // 🔥 验证 sessionId
-  const sessionId = getSessionId()
-  if (!sessionId) {
-    console.error('❌ Step5: sessionId 为空！')
-  } else {
-    console.log('✅ Step5: sessionId 已确认:', sessionId)
+  // 🔥 ========== 智能清理 + 恢复数据（合并逻辑） ==========
+  const currentSessionId = getSessionId()
+
+  // 🔥 检查确认数据（只定义一次）
+  let confirmedData = simpleStorage.getItem<{
+    content: string
+    confirmedAt?: string
+    sessionId?: string
+  }>('step5_final_answer')
+
+  // 🔥 情况1：存在确认数据，但是不同的 sessionId（说明是新实验）
+  if (confirmedData && confirmedData.sessionId && confirmedData.sessionId !== currentSessionId) {
+    console.log('🧹 Step5 - 检测到新实验，清除旧的锁定状态')
+    console.log('  旧 sessionId:', confirmedData.sessionId)
+    console.log('  新 sessionId:', currentSessionId)
+
+    // 清除所有锁定相关数据
+    simpleStorage.removeItem('step5_final_answer')
+    simpleStorage.removeItem('step5_temp_snapshot')
+
+    // 更新 step5_data，移除 lockedAt
+    const stepData = simpleStorage.getStepData(5) as Step5Data | null
+    if (stepData) {
+      delete stepData.lockedAt
+      stepData.finalAnswerConfirmed = false
+      stepData.finalAnswerSnapshot = ''
+      simpleStorage.saveStepData(5, stepData)
+    }
+
+    // 🔥 埋点 - 自动清理旧数据
+    await trackStep5Event('step5_auto_unlock', currentSessionId, 0, {
+      reason: 'new_session_detected',
+      oldSessionId: confirmedData.sessionId,
+      newSessionId: currentSessionId,
+    })
+
+    console.log('✅ Step5 - 旧锁定状态已自动清除')
+
+    // 🔥 关键：清除后重置 confirmedData 为 null
+    confirmedData = null
   }
 
-  // 🔥 埋点 - 进入 Step5
-  await trackStep5Event('step5_enter', sessionId, conversationCount.value, {
+  // 🔥 ========== 恢复数据（只有在没被清除的情况下才恢复） ==========
+
+  // 第一步：恢复帮助系统状态（最优先）
+  const stepData = simpleStorage.getStepData(5) as Step5Data | null
+  if (stepData?.helpSystem) {
+    Object.assign(helpSystem, stepData.helpSystem)
+    console.log('💾 Step5 - 帮助系统状态已恢复:', helpSystem)
+  }
+
+  // 第二步：检查是否已最终确认（锁定检查）- 使用 confirmedData
+  if (confirmedData && stepData?.finalAnswerConfirmed) {
+    finalAnswerConfirmed.value = true
+    finalAnswerSnapshot.value = stepData.finalAnswerSnapshot || ''
+
+    // 🔒 如果已确认，锁定步骤
+    isStepLocked.value = true
+    console.log('🔒 Step5 - 步骤已锁定，不可编辑')
+  }
+
+  // 第三步：埋点 - 进入 Step5
+  await trackStep5Event('step5_enter', currentSessionId, conversationCount.value, {
     hasHistory: messages.value.length > 0,
+    hasSnapshot: !!finalAnswerSnapshot.value,
+    isLocked: isStepLocked.value,
   })
 
+  // 第四步：显示内容动画
   showContentSequentially()
 })
 </script>
@@ -3337,6 +3444,45 @@ onMounted(async () => {
 
   .task-text {
     font-size: 0.85rem;
+  }
+}
+
+/* 🔥 新增：步骤锁定提示样式 */
+.step-locked-banner {
+  position: sticky;
+  top: 0;
+  z-index: 100;
+  background: linear-gradient(135deg, #fef3c7 0%, #fde68a 100%);
+  border: 2px solid #f59e0b;
+  border-radius: 0 0 12px 12px;
+  padding: 1rem 1.5rem;
+  margin-bottom: 1rem;
+  display: flex;
+  align-items: center;
+  gap: 1rem;
+  box-shadow: 0 4px 12px rgba(245, 158, 11, 0.3);
+  animation: slideDown 0.5s ease-out;
+}
+
+.lock-icon {
+  font-size: 1.5rem;
+  flex-shrink: 0;
+}
+
+.step-locked-banner span:last-child {
+  color: #92400e;
+  font-weight: 600;
+  font-size: 0.95rem;
+}
+
+@keyframes slideDown {
+  from {
+    transform: translateY(-100%);
+    opacity: 0;
+  }
+  to {
+    transform: translateY(0);
+    opacity: 1;
   }
 }
 </style>

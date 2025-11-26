@@ -762,6 +762,12 @@ const sendChatMessage = async () => {
     chatHistoryLength: chatMessages.value.length,
   })
 
+  // 🔥 收集Step2-5的确认内容
+  const step2Final = simpleStorage.getItem<{ content: string }>('step2_final_answer')
+  const step3Final = simpleStorage.getItem<{ content: string }>('step3_final_answer')
+  const step4Final = simpleStorage.getItem<{ content: string }>('step4_final_answer')
+  const step5Final = simpleStorage.getItem<{ content: string }>('step5_final_answer')
+
   try {
     const response = await fetch('/api/ai/analyze', {
       method: 'POST',
@@ -773,10 +779,27 @@ const sendChatMessage = async () => {
         step: 6,
         stage: 1,
         sessionId: sessionId,
+        // 🔥 修改：传递完整上下文
         context: {
           type: 'step6_chat_assistance',
-          currentPlan: studentFinalPlan.value,
+          currentPlan: studentFinalPlan.value, // 当前编辑的方案
+          initialDraft: studentInitialDraft.value, // 初稿
+          // 🔥 新增：前面步骤的确认内容
+          previousSteps: {
+            step2: step2Final?.content || null,
+            step3: step3Final?.content || null,
+            step4: step4Final?.content || null,
+            step5: step5Final?.content || null,
+          },
         },
+        // 🔥 新增：传递对话历史
+        conversationHistory: chatMessages.value.map((msg) => ({
+          type: msg.type,
+          content: msg.content,
+          timestamp: msg.timestamp,
+          step: 6,
+          stage: 1,
+        })),
       }),
     })
 
@@ -967,12 +990,35 @@ onMounted(async () => {
   // 生成初稿
   studentInitialDraft.value = generateInitialDraft()
 
-  // 恢复草稿或使用初稿
-  const savedDraft = simpleStorage.getItem<{ content: string }>('step6_draft')
+  // 🔥 修改：智能恢复草稿（只有真正编辑过才提示）
+  const savedDraft = simpleStorage.getItem<{
+    content: string
+    savedAt?: string
+    autoSaved?: boolean
+  }>('step6_draft')
+
   if (savedDraft?.content && !finalSubmitted.value) {
-    const useOldDraft = confirm('检测到未提交的编辑内容，是否恢复？')
-    studentFinalPlan.value = useOldDraft ? savedDraft.content : studentInitialDraft.value
+    // 🔥 关键判断：草稿内容是否与初稿不同
+    const isDifferentFromDraft = savedDraft.content.trim() !== studentInitialDraft.value.trim()
+
+    if (isDifferentFromDraft) {
+      // ✅ 只有真正编辑过才提示
+      const useOldDraft = confirm('检测到未提交的编辑内容，是否恢复？')
+      studentFinalPlan.value = useOldDraft ? savedDraft.content : studentInitialDraft.value
+
+      // 埋点 - 恢复草稿选择
+      await trackStep6Event('step6_draft_restore_prompt', getSessionId(), {
+        userChoice: useOldDraft ? 'restore' : 'discard',
+        draftLength: savedDraft.content.length,
+        draftSavedAt: savedDraft.savedAt || null,
+      })
+    } else {
+      // ✅ 草稿与初稿相同，直接使用初稿，不提示
+      console.log('📋 Step6 - 草稿与初稿相同，直接使用初稿')
+      studentFinalPlan.value = studentInitialDraft.value
+    }
   } else {
+    // ✅ 没有草稿，使用初稿
     studentFinalPlan.value = studentInitialDraft.value
   }
 

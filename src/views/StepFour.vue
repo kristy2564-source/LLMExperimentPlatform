@@ -1190,9 +1190,10 @@ const confirmNextStep = async () => {
   finalAnswerConfirmed.value = true
   showConfirmDialog.value = false
 
-  // 1. 保存到 localStorage（Step6 会读取）
+  // 1. 🔥 修改：保存到 localStorage（添加 sessionId）
   simpleStorage.setItem('step4_final_answer', {
     content: finalAnswerSnapshot.value,
+    sessionId: conversationData.sessionId, // 🔥 新增
     confirmedAt: new Date().toISOString(),
   })
 
@@ -1522,15 +1523,58 @@ const showContentSequentially = async () => {
 onMounted(async () => {
   console.log('🎬 Step4 组件已挂载')
 
-  // ⚠️ 第一步：恢复帮助系统状态（最优先）
+  // 🔥 ========== 智能清理 + 恢复数据（合并逻辑） ==========
+  const currentSessionId = simpleStorage.getSessionId()
+
+  // 🔥 检查确认数据（只定义一次）
+  let confirmedData = simpleStorage.getItem<{
+    content: string
+    confirmedAt?: string
+    sessionId?: string
+  }>('step4_final_answer')
+
+  // 🔥 情况1：存在确认数据，但是不同的 sessionId（说明是新实验）
+  if (confirmedData && confirmedData.sessionId && confirmedData.sessionId !== currentSessionId) {
+    console.log('🧹 Step4 - 检测到新实验，清除旧的锁定状态')
+    console.log('  旧 sessionId:', confirmedData.sessionId)
+    console.log('  新 sessionId:', currentSessionId)
+
+    // 清除所有锁定相关数据
+    simpleStorage.removeItem('step4_final_answer')
+
+    // 更新 step4_data，移除 lockedAt
+    const stepData = simpleStorage.getStepData(4) as StepData | null
+    if (stepData) {
+      delete stepData.lockedAt
+      stepData.finalAnswerConfirmed = false
+      stepData.finalAnswerSnapshot = ''
+      simpleStorage.saveStepData(4, stepData)
+    }
+
+    // 🔥 埋点 - 自动清理旧数据
+    await trackStep4Event('step4_auto_unlock', currentSessionId, 1, 0, {
+      reason: 'new_session_detected',
+      oldSessionId: confirmedData.sessionId,
+      newSessionId: currentSessionId,
+    })
+
+    console.log('✅ Step4 - 旧锁定状态已自动清除')
+
+    // 🔥 关键：清除后重置 confirmedData 为 null
+    confirmedData = null
+  }
+
+  // 🔥 ========== 恢复数据（只有在没被清除的情况下才恢复） ==========
+
+  // 第一步：恢复帮助系统状态（最优先）
   const stepData = simpleStorage.getStepData(4) as StepData | null
   if (stepData?.helpSystem) {
     Object.assign(helpSystem, stepData.helpSystem)
     console.log('💾 Step4 - 帮助系统状态已恢复:', helpSystem)
   }
 
-  // 🔥 第二步：检查是否已最终确认（锁定检查）
-  if (stepData?.finalAnswerConfirmed) {
+  // 第二步：检查是否已最终确认（锁定检查）- 使用 confirmedData
+  if (confirmedData && stepData?.finalAnswerConfirmed) {
     finalAnswerConfirmed.value = true
     finalAnswerSnapshot.value = stepData.finalAnswerSnapshot || ''
 
@@ -1549,7 +1593,7 @@ onMounted(async () => {
       initialStage: 1,
       hasHistory: conversationData.messages.length > 0,
       hasSnapshot: !!finalAnswerSnapshot.value,
-      isLocked: isStepLocked.value, // 🔥 新增：记录锁定状态
+      isLocked: isStepLocked.value,
     },
   )
 

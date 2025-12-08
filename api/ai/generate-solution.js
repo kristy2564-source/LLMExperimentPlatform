@@ -269,7 +269,7 @@ async function callDeepSeekAPI(prompt, attemptNumber) {
           content: prompt,
         },
       ],
-      max_tokens: 2500,
+      max_tokens: 3000,
       temperature: 0.6,
       top_p: 0.85,
       frequency_penalty: 0.3,

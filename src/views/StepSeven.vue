@@ -790,14 +790,13 @@ const questions = ref([
   // === 第四部分：开放性反馈 (1题) ===
   {
     id: 'feedback_open',
-    category: '开放性反馈',
-    categoryTitle: '（四）开放性反馈',
-    categoryDesc: '如果您在使用过程中遇到任何问题或建议，欢迎在此反馈，畅所欲言',
+    category: '反馈',
+    categoryTitle: '（四）反馈',
     categoryIcon: '💬',
     isFirstInCategory: true,
-    question: '您的宝贵意见',
+    question: '如果您在使用过程中遇到任何问题或建议，欢迎在此反馈，畅所欲言',
     type: 'textarea',
-    placeholder: '请输入您的反馈、建议或遇到的问题...',
+    placeholder: '请输入您的建议或遇到的问题...',
     required: false,
   },
 ])
@@ -1892,17 +1891,6 @@ onMounted(() => {
   transition: width 0.5s ease;
   border-radius: 7px;
   box-shadow: 0 0 10px rgba(102, 126, 234, 0.5);
-}
-
-.progress-text {
-  display: flex;
-  align-items: center;
-  gap: 1rem;
-  font-size: 1rem;
-  font-weight: 600;
-  color: #1e293b;
-  padding-bottom: 0.75rem; /* ⭐ 新增 */
-  border-bottom: 1px solid #e0e7ff; /* ⭐ 新增 */
 }
 
 .warning-text {
@@ -3109,13 +3097,15 @@ onMounted(() => {
   margin: 2rem auto;
 }
 
-.progress-ring-svg {
-  transform: rotate(-90deg);
-  filter: drop-shadow(0 8px 16px rgba(102, 126, 234, 0.3));
-}
-
-.progress-ring-circle {
-  transition: stroke-dashoffset 0.5s ease;
+/* 🔥 修正后的进度文本样式 - 绝对定位居中 */
+.progress-text {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  text-align: center;
+  width: 100%;
+  pointer-events: none; /* 防止阻挡SVG的点击事件 */
 }
 
 .progress-percentage {
@@ -3130,6 +3120,7 @@ onMounted(() => {
   font-size: 0.75rem;
   color: #64748b;
   font-weight: 500;
+  white-space: nowrap; /* 防止文字换行导致布局问题 */
 }
 
 /* 分步指示器 */
@@ -3139,6 +3130,16 @@ onMounted(() => {
   justify-content: center;
   gap: 0;
   margin-top: 2rem;
+  flex-wrap: nowrap; /* 防止在小屏幕上换行 */
+}
+
+.progress-ring-svg {
+  transform: rotate(-90deg);
+  filter: drop-shadow(0 8px 16px rgba(102, 126, 234, 0.3));
+}
+
+.progress-ring-circle {
+  transition: stroke-dashoffset 0.5s ease;
 }
 
 .step-item {

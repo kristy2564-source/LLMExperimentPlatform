@@ -1625,6 +1625,13 @@ const shouldAdvanceStage = (
     (m) => m.type === 'user' && m.stage === stage,
   )
 
+  // 🔥 新增：兜底机制 - 如果当前阶段已有6轮以上对话,自动允许推进
+  const currentStageRounds = currentStageAnswers.length
+  if (currentStageRounds >= 6) {
+    console.log(`🎯 Stage${stage} 对话轮次达到${currentStageRounds}轮,触发兜底机制,允许推进`)
+    return true
+  }
+
   if (stage === 1) {
     // 🔥 Stage1 判断：检测用户是否提到了关键因素
     const userText = currentStageAnswers.map((m) => m.content.toLowerCase()).join(' ')
@@ -1644,25 +1651,33 @@ const shouldAdvanceStage = (
     ]
     const mentionedFactors = factors.filter((f) => userText.includes(f)).length
 
-    // 条件：至少1条消息 且 提到≥2个因素
-    const isComplete = currentStageAnswers.length >= 1 && mentionedFactors >= 2
+    // 🔥 降低门槛：4轮后只需要1个因素
+    const minFactors = currentStageRounds >= 4 ? 1 : 2
+    const isComplete = currentStageAnswers.length >= 1 && mentionedFactors >= minFactors
 
-    console.log(`📊 Stage1 因素识别评估: 提到${mentionedFactors}个因素, 完成状态:${isComplete}`)
+    console.log(
+      `📊 Stage1 因素识别评估: 提到${mentionedFactors}个因素, 需要${minFactors}个, 对话${currentStageRounds}轮, 完成状态:${isComplete}`,
+    )
     return isComplete
   } else if (stage === 2) {
-    // 🔥 Stage2 判断：检测用户是否给出了控制逻辑（降低门槛）
+    // 🔥 Stage2 判断：检测用户是否给出了控制逻辑
     const userText = currentStageAnswers.map((m) => m.content.toLowerCase()).join(' ')
 
     const hasTemperatureThreshold = /(\d+度|26|24|25|28|30)/.test(userText)
     const hasAction = /(开窗|关窗|空调|风扇|排风|通风)/.test(userText)
     const hasCondition = /(当|如果|若|超过|高于|低于|大于|小于)/.test(userText)
 
-    // 🔥 降低门槛：只需要 动作+条件 或 温度+动作 即可
-    const isComplete =
-      currentStageAnswers.length >= 1 && hasAction && (hasCondition || hasTemperatureThreshold)
+    // 🔥 降低门槛：4轮后只需要动作即可
+    let isComplete
+    if (currentStageRounds >= 4) {
+      isComplete = currentStageAnswers.length >= 1 && hasAction
+    } else {
+      isComplete =
+        currentStageAnswers.length >= 1 && hasAction && (hasCondition || hasTemperatureThreshold)
+    }
 
     console.log(
-      `📊 Stage2 控制逻辑评估: 温度阈值:${hasTemperatureThreshold}, 动作:${hasAction}, 条件:${hasCondition}, 完成状态:${isComplete}`,
+      `📊 Stage2 控制逻辑评估: 温度阈值:${hasTemperatureThreshold}, 动作:${hasAction}, 条件:${hasCondition}, 对话${currentStageRounds}轮, 完成状态:${isComplete}`,
     )
     return isComplete
   }

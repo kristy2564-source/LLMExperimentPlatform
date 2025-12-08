@@ -189,6 +189,9 @@ ${reflectionAnswer}
 4. 特别关注学生在Step4提示词设计和Step6系统优化中的创新思维
 5. 只返回JSON格式，不要任何解释文字`
 
+  // ✅ 在 try 块外定义变量
+  let cleanedResponse = ''
+
   try {
     console.log('🔄 调用 DeepSeek API...')
     const response = await fetch('https://api.deepseek.com/chat/completions', {
@@ -198,7 +201,7 @@ ${reflectionAnswer}
         'Content-Type': 'application/json',
       },
       body: JSON.stringify({
-        model: 'deepseek-reasoner', // 推荐用于评估场景，或使用 'deepseek-chat'
+        model: 'deepseek-reasoner',
         messages: [
           {
             role: 'system',
@@ -211,7 +214,7 @@ ${reflectionAnswer}
           },
         ],
         temperature: 0.7,
-        max_tokens: 1500,
+        max_tokens: 4500,
         stream: false,
       }),
     })
@@ -227,10 +230,11 @@ ${reflectionAnswer}
     const data = await response.json()
     const aiResponse = data.choices[0].message.content.trim()
 
-    console.log('📝 AI 原始回复:', aiResponse.substring(0, 200) + '...')
+    console.log('📝 AI 原始回复长度:', aiResponse.length)
+    console.log('📝 AI 原始回复前200字:', aiResponse.substring(0, 200) + '...')
 
     // 清理JSON响应
-    let cleanedResponse = aiResponse
+    cleanedResponse = aiResponse
     if (cleanedResponse.includes('```json')) {
       cleanedResponse = cleanedResponse.replace(/```json\s*/g, '').replace(/```\s*$/g, '')
     }
@@ -238,12 +242,27 @@ ${reflectionAnswer}
       cleanedResponse = cleanedResponse.replace(/```[\s\S]*?```/g, '').trim()
     }
 
+    console.log('📝 清理后的完整响应:', cleanedResponse)
+    console.log('📏 响应长度:', cleanedResponse.length)
+
     const evaluationResult = JSON.parse(cleanedResponse)
     console.log('✅ AI 评估解析成功，维度数量:', evaluationResult.capabilityAssessments?.length)
-
     return evaluationResult
   } catch (error) {
     console.error('❌ AI评估生成失败:', error)
+    console.error('❌ 错误类型:', error.constructor.name)
+
+    // ✅ 安全地输出错误内容
+    if (cleanedResponse && cleanedResponse.length > 0) {
+      console.error('❌ 解析失败的内容(前500字):', cleanedResponse.substring(0, 500))
+    } else {
+      console.error('❌ 未获取到AI响应或响应为空')
+    }
+
+    if (error.message.includes('JSON')) {
+      console.error('💡 提示: JSON解析失败，可能是max_tokens不足或格式问题')
+    }
+
     return generateIntelligentFallback(conversationHistory, reflectionAnswer)
   }
 }

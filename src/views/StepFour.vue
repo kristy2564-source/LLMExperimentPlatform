@@ -727,7 +727,7 @@ const showAnswerArea = ref(false)
 const showConversationWarning = ref(false)
 const showConfirmDialog = ref(false)
 const userAnswer = ref('')
-const answerSubmitted = ref(rawStepData?.isCompleted || false)
+const answerSubmitted = ref(false)
 const isGenerating = ref(false)
 const loadingStep = ref(1)
 
@@ -880,8 +880,8 @@ const submitAnswer = async () => {
       step: 4,
       stage: 1,
     })
-    // 🔥 移除：不要在这里设置 answerSubmitted = true
-    //answerSubmitted.value = true
+
+    answerSubmitted.value = true
 
     saveToStorage()
     emit('update-progress', 4)

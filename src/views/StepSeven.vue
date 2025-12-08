@@ -462,6 +462,24 @@
       v-show="!showQuestionnaire"
     >
       <div class="input-container">
+        <!-- ✅ 新增：生成报告提示区域 -->
+        <div v-if="showGenerateReportButton && !evaluationGenerated" class="generate-report-hint">
+          <div class="hint-icon">💡</div>
+          <div class="hint-content">
+            <p class="hint-title">反思对话已进行了 {{ conversationRound }} 轮</p>
+            <p class="hint-text">如果你觉得已经充分反思，可以点击下方按钮生成评估报告</p>
+          </div>
+          <button
+            class="generate-report-button"
+            @click="handleGenerateReport"
+            :disabled="isGeneratingEvaluation"
+          >
+            <span class="btn-icon">📊</span>
+            <span v-if="isGeneratingEvaluation">生成中...</span>
+            <span v-else>分析并生成报告</span>
+          </button>
+        </div>
+
         <textarea
           v-model="userAnswer"
           placeholder="请分享你的思考和反思..."
@@ -584,6 +602,8 @@ const experimentCompleted = ref(false) // 实验是否已完成
 const autoLogoutCountdown = ref(15 * 60) // 倒计时秒数(默认15分钟)
 const countdownInterval = ref<number | null>(null)
 const showCountdownWarning = ref(false) // 显示倒计时警告
+
+const showGenerateReportButton = ref(false) // 是否显示"生成报告"按钮
 
 // 🔥 新增：定义全局函数接口，避免使用 any
 interface WindowWithCountdown extends Window {
@@ -1180,6 +1200,7 @@ const handleInput = () => {
   // 输入处理
 }
 
+// ========== 修改 submitAnswer 函数（去掉自动触发评估）==========
 const submitAnswer = async () => {
   if (!canSubmit.value) return
 
@@ -1202,12 +1223,11 @@ const submitAnswer = async () => {
     answerSubmitted.value = true
     saveToStorage()
 
-    setTimeout(async () => {
-      addSystemMessage('evaluation-progress')
-      await generateEvaluationFromHistory()
-      removeSystemMessage('evaluation-progress')
-      addSystemMessage('evaluation-complete')
-    }, 1500)
+    // ✅ 关键改动：去掉自动触发评估，改为显示生成报告按钮
+    // 在对话2轮以上后显示生成报告按钮
+    if (conversationRound.value >= 2) {
+      showGenerateReportButton.value = true
+    }
 
     emit('update-progress', 7)
   } catch (error) {
@@ -1217,6 +1237,20 @@ const submitAnswer = async () => {
   } finally {
     isGenerating.value = false
   }
+}
+
+// ========== 新增：手动触发生成报告的函数 ==========
+const handleGenerateReport = async () => {
+  if (isGeneratingEvaluation.value) return
+
+  showGenerateReportButton.value = false // 隐藏按钮
+
+  setTimeout(async () => {
+    addSystemMessage('evaluation-progress')
+    await generateEvaluationFromHistory()
+    removeSystemMessage('evaluation-progress')
+    addSystemMessage('evaluation-complete')
+  }, 500)
 }
 
 const generateEvaluationFromHistory = async () => {
@@ -4200,6 +4234,104 @@ onUnmounted(() => {
   to {
     opacity: 0;
     transform: translateX(100%);
+  }
+}
+
+/* ========== 生成报告提示区域 ========== */
+.generate-report-hint {
+  background: linear-gradient(135deg, #fef3c7 0%, #fde68a 100%);
+  border: 2px solid #fbbf24;
+  border-radius: 16px;
+  padding: 1.5rem;
+  margin-bottom: 1rem;
+  display: flex;
+  align-items: center;
+  gap: 1.5rem;
+  box-shadow: 0 4px 15px rgba(251, 191, 36, 0.2);
+  animation: slideIn 0.4s ease-out;
+}
+
+.hint-icon {
+  font-size: 2.5rem;
+  flex-shrink: 0;
+}
+
+.hint-content {
+  flex: 1;
+}
+
+.hint-title {
+  font-size: 1.1rem;
+  font-weight: 700;
+  color: #78350f;
+  margin: 0 0 0.5rem 0;
+}
+
+.hint-text {
+  font-size: 0.95rem;
+  color: #92400e;
+  margin: 0;
+  line-height: 1.5;
+}
+
+.generate-report-button {
+  background: linear-gradient(135deg, #f59e0b 0%, #d97706 100%);
+  color: white;
+  border: none;
+  padding: 1rem 2rem;
+  border-radius: 12px;
+  font-size: 1rem;
+  font-weight: 700;
+  cursor: pointer;
+  transition: all 0.3s ease;
+  box-shadow: 0 4px 15px rgba(245, 158, 11, 0.3);
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  white-space: nowrap;
+  flex-shrink: 0;
+}
+
+.generate-report-button:hover:not(:disabled) {
+  transform: translateY(-2px);
+  box-shadow: 0 6px 20px rgba(245, 158, 11, 0.4);
+}
+
+.generate-report-button:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
+.generate-report-button .btn-icon {
+  font-size: 1.2rem;
+}
+
+@keyframes slideIn {
+  from {
+    opacity: 0;
+    transform: translateY(-20px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+/* 响应式 */
+@media (max-width: 768px) {
+  .generate-report-hint {
+    flex-direction: column;
+    text-align: center;
+    padding: 1.25rem;
+  }
+
+  .hint-icon {
+    font-size: 2rem;
+  }
+
+  .generate-report-button {
+    width: 100%;
+    justify-content: center;
   }
 }
 </style>

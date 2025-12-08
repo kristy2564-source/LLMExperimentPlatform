@@ -295,7 +295,7 @@
             <button
               class="next-button"
               @click="handleNextStep"
-              v-if="stage2Completed || allStagesCompleted || isConversationLimitReached"
+              v-if="allStagesCompleted || isConversationLimitReached"
             >
               下一步
             </button>
@@ -798,7 +798,7 @@ const closeCycleLimitDialog = () => {
 }
 
 // ==================== 常量配置 ====================
-const MAX_CONVERSATIONS = 10
+const MAX_CONVERSATIONS = 8
 
 const stageConfig = [
   {
@@ -849,9 +849,7 @@ const currentSubmitButtonText = computed(() => {
   return stageConfig[currentStage.value - 1]?.submitText || '提交回答'
 })
 
-const allStagesCompleted = computed(() => {
-  return stageCompletionStatus.value.every((status) => status) || stage2Completed.value
-})
+const allStagesCompleted = computed(() => canProceedToNextStep.value)
 
 // ==================== 🔥 快照生成函数 ====================
 
@@ -1613,28 +1611,88 @@ async function getSmartHelp(
     throw error
   }
 }
+// ==================== 🔥 新增：过滤帮助请求，统计真实用户交互 ====================
+
+/**
+ * 判断消息是否为帮助请求
+ */
+const isHelpRequest = (message: Message): boolean => {
+  const helpPatterns = [
+    /^\[REFINE_CONTENT\]/,
+    /^\[REQUEST_EXAMPLE\]/,
+    /^\[CUSTOM_QUESTION\]/,
+    /^\[HELP_REQUEST\]/,
+    /^\[SMART_HELP_REQUEST\]/,
+    /^💬\s*帮我完善/,
+    /^💡\s*能给我看看例子/,
+    /^✍️\s*我想问/,
+  ]
+
+  return helpPatterns.some((pattern) => pattern.test(message.content))
+}
+
+/**
+ * 统计真实用户交互次数（排除帮助请求）
+ * @param messages 消息列表
+ * @param stage 可选，指定阶段
+ * @returns 真实交互次数
+ */
+const getRealUserInteractionCount = (messages: Message[], stage?: number): number => {
+  const filteredMessages = messages.filter((m) => {
+    if (m.type !== 'user') return false
+    if (stage && m.stage !== stage) return false
+    return !isHelpRequest(m)
+  })
+
+  console.log(`📊 真实用户交互统计 (Stage${stage || 'All'}): ${filteredMessages.length}次`)
+  return filteredMessages.length
+}
 
 // ==================== 辅助函数 ====================
 
+// ==================== 🔥 完全重写：Stage推进判断逻辑 ====================
+
+/**
+ * 判断是否应该推进到下一阶段
+ * 新规则：
+ * - Stage1: 累计3个因素 OR 第4轮自动跳转（至少1次真实回答）
+ * - Stage2: 真实交互2轮自动完成
+ */
 const shouldAdvanceStage = (
   stage: number,
   conversationHistory: Message[],
   latestAIResponse: string,
 ): boolean => {
-  const currentStageAnswers = conversationHistory.filter(
-    (m) => m.type === 'user' && m.stage === stage,
+  // 🔥 只统计真实用户交互（排除帮助请求）
+  const realUserAnswers = conversationHistory.filter(
+    (m) => m.type === 'user' && m.stage === stage && !isHelpRequest(m),
   )
 
-  // 🔥 新增：兜底机制 - 如果当前阶段已有6轮以上对话,自动允许推进
-  const currentStageRounds = currentStageAnswers.length
-  if (currentStageRounds >= 6) {
-    console.log(`🎯 Stage${stage} 对话轮次达到${currentStageRounds}轮,触发兜底机制,允许推进`)
-    return true
-  }
+  const realInteractionCount = realUserAnswers.length
+
+  console.log(`
+📊 Stage${stage} 判断详情:
+  - 真实交互次数: ${realInteractionCount}
+  - 总消息数: ${conversationHistory.filter((m) => m.stage === stage).length}
+  `)
 
   if (stage === 1) {
-    // 🔥 Stage1 判断：检测用户是否提到了关键因素
-    const userText = currentStageAnswers.map((m) => m.content.toLowerCase()).join(' ')
+    // ==================== Stage1 新规则 ====================
+
+    // 规则0: 至少要有1次真实回答
+    if (realInteractionCount === 0) {
+      console.log('❌ Stage1 未完成：还没有真实回答')
+      return false
+    }
+
+    // 规则1: 第4轮自动跳转
+    if (realInteractionCount >= 4) {
+      console.log('✅ Stage1 完成：达到第4轮，自动跳转到Stage2')
+      return true
+    }
+
+    // 规则2: 累计提到3个因素
+    const userText = realUserAnswers.map((m) => m.content.toLowerCase()).join(' ')
     const factors = [
       '温度',
       'co2',
@@ -1651,39 +1709,69 @@ const shouldAdvanceStage = (
     ]
     const mentionedFactors = factors.filter((f) => userText.includes(f)).length
 
-    // 🔥 降低门槛：4轮后只需要1个因素
-    const minFactors = currentStageRounds >= 4 ? 1 : 2
-    const isComplete = currentStageAnswers.length >= 1 && mentionedFactors >= minFactors
+    if (mentionedFactors >= 3) {
+      console.log(`✅ Stage1 完成：提到${mentionedFactors}个因素，达到3个门槛`)
+      return true
+    }
 
     console.log(
-      `📊 Stage1 因素识别评估: 提到${mentionedFactors}个因素, 需要${minFactors}个, 对话${currentStageRounds}轮, 完成状态:${isComplete}`,
+      `⏳ Stage1 进行中：第${realInteractionCount}轮，提到${mentionedFactors}个因素（需要3个）`,
     )
-    return isComplete
+    return false
   } else if (stage === 2) {
-    // 🔥 Stage2 判断：检测用户是否给出了控制逻辑
-    const userText = currentStageAnswers.map((m) => m.content.toLowerCase()).join(' ')
+    // ==================== Stage2 新规则 ====================
 
+    // 规则1: 真实交互2轮自动完成
+    if (realInteractionCount >= 2) {
+      console.log(`✅ Stage2 完成：真实交互${realInteractionCount}轮，达到2轮门槛`)
+      return true
+    }
+
+    // 规则2: 第1轮就包含完整控制逻辑也可以完成
+    const userText = realUserAnswers.map((m) => m.content.toLowerCase()).join(' ')
     const hasTemperatureThreshold = /(\d+度|26|24|25|28|30)/.test(userText)
     const hasAction = /(开窗|关窗|空调|风扇|排风|通风)/.test(userText)
     const hasCondition = /(当|如果|若|超过|高于|低于|大于|小于)/.test(userText)
 
-    // 🔥 降低门槛：4轮后只需要动作即可
-    let isComplete
-    if (currentStageRounds >= 4) {
-      isComplete = currentStageAnswers.length >= 1 && hasAction
-    } else {
-      isComplete =
-        currentStageAnswers.length >= 1 && hasAction && (hasCondition || hasTemperatureThreshold)
+    if (realInteractionCount >= 1 && hasAction && (hasCondition || hasTemperatureThreshold)) {
+      console.log('✅ Stage2 完成：第1轮已包含完整控制逻辑')
+      return true
     }
 
-    console.log(
-      `📊 Stage2 控制逻辑评估: 温度阈值:${hasTemperatureThreshold}, 动作:${hasAction}, 条件:${hasCondition}, 对话${currentStageRounds}轮, 完成状态:${isComplete}`,
-    )
-    return isComplete
+    console.log(`⏳ Stage2 进行中：第${realInteractionCount}轮，等待第2轮或完整内容`)
+    return false
   }
 
   return false
 }
+
+// ==================== 🔥 新增：整体Step2完成判断 ====================
+
+/**
+ * 判断是否可以进入下一步
+ * 规则：
+ * 1. 两个阶段都完成 OR
+ * 2. 累计真实交互达到6次
+ */
+const canProceedToNextStep = computed(() => {
+  // 规则1: 两个阶段都完成
+  if (stage1Completed.value && stage2Completed.value) {
+    console.log('✅ 可以进入下一步：两个阶段都已完成')
+    return true
+  }
+
+  // 规则2: 累计真实交互达到6次（兜底机制）
+  const totalRealInteractions = getRealUserInteractionCount(conversationData.messages)
+  if (totalRealInteractions >= 6) {
+    console.log(`✅ 可以进入下一步：累计真实交互${totalRealInteractions}次，达到6次门槛`)
+    return true
+  }
+
+  console.log(
+    `⏳ 暂不能进入下一步：Stage1=${stage1Completed.value}, Stage2=${stage2Completed.value}, 真实交互=${totalRealInteractions}/6`,
+  )
+  return false
+})
 
 const checkStageCompletion = async (
   stage: number,

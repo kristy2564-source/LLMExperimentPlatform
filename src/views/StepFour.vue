@@ -231,7 +231,6 @@
     <!-- 底部用户输入区域 -->
     <div class="input-section" :class="{ 'input-visible': showAnswerArea }">
       <div class="input-container">
-        <!-- 🔥 修复1：类名改为 user-input -->
         <textarea
           v-model="userAnswer"
           @input="handleInput"
@@ -241,7 +240,6 @@
           :disabled="isStepLocked"
         ></textarea>
         <div class="input-toolbar">
-          <!-- 🔥 修复2：函数名改为 requestHelp -->
           <button
             class="help-button"
             @click="requestHelp"
@@ -255,22 +253,33 @@
           <div class="action-buttons">
             <!-- 提交按钮 -->
             <button
-              v-if="!answerSubmitted"
+              v-if="!isConversationLimitReached && !isStepLocked"
               class="submit-button"
               @click="submitAnswer"
-              :disabled="isStepLocked || !canSubmit || isConversationLimitReached"
+              :disabled="!canSubmit || isGenerating"
             >
-              <span class="button-icon">🚀</span>
-              <span>{{ isConversationLimitReached ? '已达上限' : '提交并测试' }}</span>
+              <span v-if="isGenerating">
+                <span class="button-loading-dots">
+                  <span class="button-dot"></span>
+                  <span class="button-dot"></span>
+                  <span class="button-dot"></span>
+                </span>
+                测试中...
+              </span>
+              <span v-else>
+                <span class="button-icon">🚀</span>
+                <span>提交并测试</span>
+              </span>
             </button>
 
             <!-- 下一步按钮 -->
             <button
               class="next-button"
               @click="handleNextStep"
-              v-if="answerSubmitted || isConversationLimitReached"
+              v-if="answerSubmitted || isConversationLimitReached || isStepLocked"
             >
-              下一步
+              <span class="button-icon"></span>
+              <span>下一步</span>
             </button>
           </div>
         </div>
@@ -871,8 +880,8 @@ const submitAnswer = async () => {
       step: 4,
       stage: 1,
     })
-
-    answerSubmitted.value = true
+    // 🔥 移除：不要在这里设置 answerSubmitted = true
+    //answerSubmitted.value = true
 
     saveToStorage()
     emit('update-progress', 4)

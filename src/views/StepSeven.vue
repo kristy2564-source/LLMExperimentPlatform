@@ -169,9 +169,53 @@
             class="btn-submit"
             :class="{ disabled: !isQuestionnaireComplete }"
           >
-            <span v-if="isQuestionnaireComplete">✓ 提交问卷</span>
+            <span v-if="isQuestionnaireComplete">提交问卷</span>
             <span v-else>⚠️ 完成所有题目后提交 ({{ incompleteQuestions.length }}题未答)</span>
           </button>
+        </div>
+      </div>
+    </div>
+
+    <!-- 在对话区域顶部添加完成卡片 -->
+    <div v-if="experimentCompleted" class="experiment-completed-card">
+      <div class="completed-card-content">
+        <div class="completed-header">
+          <div class="completed-icon">🎉</div>
+          <div class="completed-info">
+            <h3>实验已完成！</h3>
+            <p>恭喜你完成了智能通风节能方案设计实验</p>
+          </div>
+        </div>
+
+        <div class="completed-status">
+          <div class="status-item">
+            <span class="status-label">完成时间</span>
+            <span class="status-value">{{ formatCompletionTime() }}</span>
+          </div>
+          <div class="status-item">
+            <span class="status-label">自动退出倒计时</span>
+            <span class="status-value countdown-time">{{ formattedCountdown }}</span>
+          </div>
+        </div>
+
+        <div class="completed-actions">
+          <button class="action-btn primary-btn" @click="openEvaluationModal">
+            <span class="btn-icon">📊</span>
+            查看评估报告
+          </button>
+          <button class="action-btn secondary-btn" @click="extendCountdown">
+            <span class="btn-icon">⏰</span>
+            延长时间
+          </button>
+          <button class="action-btn danger-btn" @click="handleAutoLogout">
+            <span class="btn-icon">🚪</span>
+            立即退出
+          </button>
+        </div>
+
+        <div class="completed-tip">
+          <span class="tip-icon">💡</span>
+          <span>教师检查完毕后，请点击"立即退出"清空数据</span>
         </div>
       </div>
     </div>
@@ -522,7 +566,7 @@
 </template>
 
 <script setup lang="ts">
-import { ref, computed, onMounted, nextTick, reactive } from 'vue'
+import { ref, computed, onMounted, onUnmounted, nextTick, reactive } from 'vue' // 🔥 添加 onUnmounted
 import { useRouter } from 'vue-router'
 import { simpleStorage } from '../../api/utils/simpleStorage'
 
@@ -534,6 +578,18 @@ const evaluationProgress = ref(0)
 const evaluationStage = ref(0)
 const evaluationStatusText = ref('准备分析学习数据...')
 const progressInterval = ref<number | null>(null)
+
+// ========== 新增：完成实验状态管理 ==========
+const experimentCompleted = ref(false) // 实验是否已完成
+const autoLogoutCountdown = ref(15 * 60) // 倒计时秒数(默认15分钟)
+const countdownInterval = ref<number | null>(null)
+const showCountdownWarning = ref(false) // 显示倒计时警告
+
+// 🔥 新增：定义全局函数接口，避免使用 any
+interface WindowWithCountdown extends Window {
+  extendCountdown?: () => void
+  logoutNow?: () => void
+}
 
 // ========== 类型定义 ==========
 interface Message {
@@ -822,6 +878,13 @@ const incompleteQuestions = computed(() => {
   return questions.value.filter((q) => q.type !== 'textarea' && !answers[q.id]).map((q) => q.id)
 })
 
+// ========== 计算属性：格式化倒计时 ==========
+const formattedCountdown = computed(() => {
+  const minutes = Math.floor(autoLogoutCountdown.value / 60)
+  const seconds = autoLogoutCountdown.value % 60
+  return `${minutes}:${seconds.toString().padStart(2, '0')}`
+})
+
 // ========== 问卷相关方法 ==========
 const isQuestionAnswered = (questionId: string) => {
   return answers[questionId] !== undefined
@@ -979,7 +1042,6 @@ const submitQuestionnaire = async () => {
 
     const contentType = response.headers.get('content-type')
     if (!contentType || !contentType.includes('application/json')) {
-      const text = await response.text()
       throw new Error('服务器返回了非JSON格式的响应')
     }
 
@@ -1306,8 +1368,229 @@ const closeEvaluationModal = () => {
   saveToStorage()
 }
 
+// ========== 新增：自动退出倒计时 ==========
+const startAutoLogoutCountdown = () => {
+  // 清除之前的倒计时
+  if (countdownInterval.value) {
+    clearInterval(countdownInterval.value)
+  }
+
+  console.log('⏱️ 启动自动退出倒计时: 15分钟')
+
+  countdownInterval.value = window.setInterval(() => {
+    autoLogoutCountdown.value--
+
+    // 剩余2分钟时显示警告
+    if (autoLogoutCountdown.value === 120 && !showCountdownWarning.value) {
+      showCountdownWarning.value = true
+      showCountdownWarningDialog()
+    }
+
+    // 倒计时结束
+    if (autoLogoutCountdown.value <= 0) {
+      handleAutoLogout()
+    }
+  }, 1000)
+}
+
+// ========== 新增：显示倒计时警告弹窗 ==========
+const showCountdownWarningDialog = () => {
+  const warningDialog = document.createElement('div')
+
+  warningDialog.style.cssText = `
+    position: fixed;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
+    background: rgba(0, 0, 0, 0.7);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    z-index: 9999;
+    backdrop-filter: blur(4px);
+  `
+
+  warningDialog.innerHTML = `
+    <div style="
+      background: white;
+      border-radius: 20px;
+      padding: 2rem;
+      max-width: 400px;
+      width: 90%;
+      text-align: center;
+      box-shadow: 0 20px 60px rgba(0, 0, 0, 0.3);
+    ">
+      <div style="font-size: 4rem; margin-bottom: 1rem;">⏰</div>
+      <h3 style="margin: 0 0 1rem 0; color: #dc2626; font-size: 1.5rem;">即将自动退出</h3>
+      <p style="margin: 0 0 1.5rem 0; color: #64748b; font-size: 1rem;">
+        还有 <strong>2分钟</strong> 将自动退出登录并清空数据
+      </p>
+      <div style="display: flex; gap: 1rem;">
+        <button
+          onclick="window.extendCountdown()"
+          style="
+            flex: 1;
+            padding: 0.75rem 1rem;
+            border: none;
+            border-radius: 12px;
+            font-size: 1rem;
+            font-weight: 600;
+            cursor: pointer;
+            background: linear-gradient(135deg, #10b981, #059669);
+            color: white;
+            box-shadow: 0 4px 12px rgba(16, 185, 129, 0.3);
+          "
+        >
+          延长15分钟
+        </button>
+        <button
+          onclick="window.logoutNow()"
+          style="
+            flex: 1;
+            padding: 0.75rem 1rem;
+            border: none;
+            border-radius: 12px;
+            font-size: 1rem;
+            font-weight: 600;
+            cursor: pointer;
+            background: linear-gradient(135deg, #ef4444, #dc2626);
+            color: white;
+            box-shadow: 0 4px 12px rgba(239, 68, 68, 0.3);
+          "
+        >
+          立即退出
+        </button>
+      </div>
+    </div>
+  `
+
+  document.body.appendChild(warningDialog)
+
+  interface WindowWithCountdown extends Window {
+    extendCountdown?: () => void
+    logoutNow?: () => void
+  }
+
+  const windowWithFunctions = window as WindowWithCountdown
+
+  windowWithFunctions.extendCountdown = () => {
+    extendCountdown()
+    if (document.body.contains(warningDialog)) {
+      document.body.removeChild(warningDialog)
+    }
+  }
+
+  windowWithFunctions.logoutNow = () => {
+    if (document.body.contains(warningDialog)) {
+      document.body.removeChild(warningDialog)
+    }
+    handleAutoLogout()
+  }
+}
+
+// ========== 新增:延长倒计时 ==========
+const extendCountdown = () => {
+  autoLogoutCountdown.value += 15 * 60 // 延长15分钟
+  showCountdownWarning.value = false
+  console.log('⏱️ 倒计时已延长15分钟')
+
+  // 显示延长成功提示
+  showToast('✅ 已延长15分钟', 'success')
+}
+
+// ========== 新增：自动退出处理 ==========
+const handleAutoLogout = () => {
+  if (countdownInterval.value) {
+    clearInterval(countdownInterval.value)
+    countdownInterval.value = null
+  }
+
+  console.log('🚪 自动退出登录并清空数据')
+
+  // 清除所有本地数据
+  simpleStorage.clearSession()
+  localStorage.removeItem('experimentId')
+  localStorage.removeItem('studentName')
+  localStorage.removeItem('loginTime')
+
+  // 显示退出提示
+  showAutoLogoutMessage()
+
+  // 2秒后跳转到登录页
+  setTimeout(() => {
+    router.push('/login')
+  }, 2000)
+}
+
+// ========== 新增：显示自动退出消息 ==========
+const showAutoLogoutMessage = () => {
+  const messageOverlay = document.createElement('div')
+
+  messageOverlay.style.cssText = `
+    position: fixed;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
+    background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    z-index: 9999;
+  `
+
+  messageOverlay.innerHTML = `
+    <div style="
+      background: white;
+      border-radius: 20px;
+      padding: 3rem;
+      text-align: center;
+      box-shadow: 0 20px 60px rgba(0, 0, 0, 0.3);
+    ">
+      <div style="font-size: 4rem; margin-bottom: 1rem;">👋</div>
+      <h3 style="margin: 0 0 1rem 0; color: #1e293b; font-size: 1.5rem;">自动退出登录</h3>
+      <p style="margin: 0; color: #64748b; font-size: 1rem;">你的实验数据已保存，正在返回登录页...</p>
+    </div>
+  `
+
+  document.body.appendChild(messageOverlay)
+}
+
+// ========== 新增：Toast 提示 ==========
+const showToast = (message: string, type: 'success' | 'warning' | 'error' = 'success') => {
+  const toast = document.createElement('div')
+
+  toast.style.cssText = `
+    position: fixed;
+    top: 20px;
+    right: 20px;
+    background: ${type === 'success' ? '#10b981' : type === 'warning' ? '#f59e0b' : '#ef4444'};
+    color: white;
+    padding: 1rem 1.5rem;
+    border-radius: 12px;
+    box-shadow: 0 4px 12px rgba(0,0,0,0.2);
+    z-index: 9999;
+    font-size: 1rem;
+    font-weight: 600;
+  `
+
+  toast.textContent = message
+  document.body.appendChild(toast)
+
+  setTimeout(() => {
+    if (document.body.contains(toast)) {
+      document.body.removeChild(toast)
+    }
+  }, 3000)
+}
+
+// ========== 修改 finishExperiment 函数 ==========
 const finishExperiment = () => {
   showEvaluationModal.value = false
+  experimentCompleted.value = true // 🔥 标记实验完成
+
+  // 保存完成状态
   simpleStorage.updateCurrentStep(8)
   simpleStorage.addConversationPair(
     7,
@@ -1316,11 +1599,21 @@ const finishExperiment = () => {
     1,
     'experiment_completion',
   )
+
+  // 保存完成时间戳
+  simpleStorage.setItem('experiment_completed_at', new Date().toISOString())
+
+  // 显示庆祝动画
   showCelebrationAnimation()
   emit('experiment-complete')
-  setTimeout(() => {
-    router.push('/')
-  }, 3000)
+
+  // 🔥 启动自动退出倒计时
+  startAutoLogoutCountdown()
+
+  // 🔥 不再自动跳转到首页
+  // setTimeout(() => {
+  //   router.push('/')
+  // }, 3000)
 }
 
 const showCelebrationAnimation = () => {
@@ -1414,6 +1707,21 @@ const formatTime = (timestamp: Date) => {
     hour: '2-digit',
     minute: '2-digit',
   })
+}
+
+const formatCompletionTime = () => {
+  const completedAt = simpleStorage.getItem<string>('experiment_completed_at')
+  if (completedAt) {
+    const date = new Date(completedAt)
+    return date.toLocaleString('zh-CN', {
+      year: 'numeric',
+      month: '2-digit',
+      day: '2-digit',
+      hour: '2-digit',
+      minute: '2-digit',
+    })
+  }
+  return '刚刚'
 }
 
 const callAIAPI = async (answer: string, round: number, history: string[]): Promise<string> => {
@@ -1548,13 +1856,44 @@ const showContentSequentially = async () => {
   }
 }
 
+// ========== 修改 onMounted，恢复倒计时状态 ==========
 onMounted(() => {
   const stepData = simpleStorage.getStepData(7)
+
+  // 检查是否已完成实验
+  const completedAt = simpleStorage.getItem<string>('experiment_completed_at')
+  if (completedAt && stepData?.questionnaireCompleted) {
+    experimentCompleted.value = true
+
+    // 计算剩余时间
+    const completedTime = new Date(completedAt).getTime()
+    const now = Date.now()
+    const elapsedSeconds = Math.floor((now - completedTime) / 1000)
+    const remainingSeconds = 15 * 60 - elapsedSeconds
+
+    if (remainingSeconds > 0) {
+      autoLogoutCountdown.value = remainingSeconds
+      startAutoLogoutCountdown()
+      console.log(`⏱️ 恢复倒计时，剩余 ${remainingSeconds} 秒`)
+    } else {
+      // 时间已过，立即退出
+      handleAutoLogout()
+      return
+    }
+  }
+
   if (stepData?.questionnaireCompleted) {
     showQuestionnaire.value = false
     showContentSequentially()
   } else {
     showQuestionnaire.value = true
+  }
+})
+
+// ========== 清理倒计时 ==========
+onUnmounted(() => {
+  if (countdownInterval.value) {
+    clearInterval(countdownInterval.value)
   }
 })
 </script>
@@ -3536,6 +3875,331 @@ onMounted(() => {
 
   .option-text {
     font-size: 0.48rem;
+  }
+}
+
+/* ========== 完成实验卡片样式 ========== */
+.experiment-completed-card {
+  margin: 1rem;
+  background: linear-gradient(135deg, #ecfdf5 0%, #d1fae5 100%);
+  border: 2px solid #10b981;
+  border-radius: 20px;
+  box-shadow: 0 8px 32px rgba(16, 185, 129, 0.2);
+  animation: slideInDown 0.5s ease-out;
+}
+
+.completed-card-content {
+  padding: 1.5rem;
+}
+
+.completed-header {
+  display: flex;
+  align-items: center;
+  gap: 1rem;
+  margin-bottom: 1.5rem;
+}
+
+.completed-icon {
+  font-size: 3rem;
+  animation: bounce 2s ease-in-out infinite;
+}
+
+.completed-info h3 {
+  margin: 0 0 0.5rem 0;
+  color: #065f46;
+  font-size: 1.5rem;
+  font-weight: 700;
+}
+
+.completed-info p {
+  margin: 0;
+  color: #047857;
+  font-size: 1rem;
+}
+
+.completed-status {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 1rem;
+  margin-bottom: 1.5rem;
+  padding: 1rem;
+  background: rgba(255, 255, 255, 0.6);
+  border-radius: 12px;
+}
+
+.status-item {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+
+.status-label {
+  font-size: 0.875rem;
+  color: #059669;
+  font-weight: 500;
+}
+
+.status-value {
+  font-size: 1.125rem;
+  color: #065f46;
+  font-weight: 600;
+}
+
+.countdown-time {
+  font-size: 1.5rem;
+  color: #dc2626;
+  font-family: 'Courier New', monospace;
+}
+
+.completed-actions {
+  display: flex;
+  gap: 1rem;
+  margin-bottom: 1rem;
+}
+
+.action-btn {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.5rem;
+  padding: 0.75rem 1rem;
+  border: none;
+  border-radius: 12px;
+  font-size: 0.95rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.2s;
+}
+
+.primary-btn {
+  background: linear-gradient(135deg, #3b82f6, #1d4ed8);
+  color: white;
+  box-shadow: 0 4px 12px rgba(59, 130, 246, 0.3);
+}
+
+.primary-btn:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 6px 20px rgba(59, 130, 246, 0.4);
+}
+
+.secondary-btn {
+  background: linear-gradient(135deg, #f59e0b, #d97706);
+  color: white;
+  box-shadow: 0 4px 12px rgba(245, 158, 11, 0.3);
+}
+
+.secondary-btn:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 6px 20px rgba(245, 158, 11, 0.4);
+}
+
+.danger-btn {
+  background: linear-gradient(135deg, #ef4444, #dc2626);
+  color: white;
+  box-shadow: 0 4px 12px rgba(239, 68, 68, 0.3);
+}
+
+.danger-btn:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 6px 20px rgba(239, 68, 68, 0.4);
+}
+
+.completed-tip {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.75rem 1rem;
+  background: rgba(251, 191, 36, 0.2);
+  border: 1px solid #fbbf24;
+  border-radius: 10px;
+  color: #92400e;
+  font-size: 0.875rem;
+}
+
+.tip-icon {
+  font-size: 1.25rem;
+}
+
+/* ========== 倒计时警告弹窗 ========== */
+.countdown-warning-overlay {
+  position: fixed;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100%;
+  background: rgba(0, 0, 0, 0.7);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 9999;
+  backdrop-filter: blur(4px);
+  animation: fadeIn 0.3s ease-out;
+}
+
+.countdown-warning-box {
+  background: white;
+  border-radius: 20px;
+  padding: 2rem;
+  max-width: 400px;
+  width: 90%;
+  text-align: center;
+  box-shadow: 0 20px 60px rgba(0, 0, 0, 0.3);
+  animation: scaleIn 0.3s ease-out;
+}
+
+.warning-icon {
+  font-size: 4rem;
+  margin-bottom: 1rem;
+  animation: shake 0.5s ease-in-out infinite;
+}
+
+.countdown-warning-box h3 {
+  margin: 0 0 1rem 0;
+  color: #dc2626;
+  font-size: 1.5rem;
+}
+
+.countdown-warning-box p {
+  margin: 0 0 1.5rem 0;
+  color: #64748b;
+  font-size: 1rem;
+}
+
+.warning-actions {
+  display: flex;
+  gap: 1rem;
+}
+
+.extend-btn,
+.logout-now-btn {
+  flex: 1;
+  padding: 0.75rem 1rem;
+  border: none;
+  border-radius: 12px;
+  font-size: 1rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.2s;
+}
+
+.extend-btn {
+  background: linear-gradient(135deg, #10b981, #059669);
+  color: white;
+  box-shadow: 0 4px 12px rgba(16, 185, 129, 0.3);
+}
+
+.extend-btn:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 6px 20px rgba(16, 185, 129, 0.4);
+}
+
+.logout-now-btn {
+  background: linear-gradient(135deg, #ef4444, #dc2626);
+  color: white;
+  box-shadow: 0 4px 12px rgba(239, 68, 68, 0.3);
+}
+
+.logout-now-btn:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 6px 20px rgba(239, 68, 68, 0.4);
+}
+
+/* ========== 自动退出提示 ========== */
+.auto-logout-overlay {
+  position: fixed;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100%;
+  background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 9999;
+  animation: fadeIn 0.5s ease-out;
+}
+
+.auto-logout-box {
+  background: white;
+  border-radius: 20px;
+  padding: 3rem;
+  text-align: center;
+  box-shadow: 0 20px 60px rgba(0, 0, 0, 0.3);
+}
+
+.logout-icon {
+  font-size: 4rem;
+  margin-bottom: 1rem;
+}
+
+.auto-logout-box h3 {
+  margin: 0 0 1rem 0;
+  color: #1e293b;
+  font-size: 1.5rem;
+}
+
+.auto-logout-box p {
+  margin: 0;
+  color: #64748b;
+  font-size: 1rem;
+}
+
+/* ========== 动画 ========== */
+@keyframes slideInDown {
+  from {
+    opacity: 0;
+    transform: translateY(-30px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@keyframes shake {
+  0%,
+  100% {
+    transform: rotate(0deg);
+  }
+  25% {
+    transform: rotate(-10deg);
+  }
+  75% {
+    transform: rotate(10deg);
+  }
+}
+
+@keyframes scaleIn {
+  from {
+    opacity: 0;
+    transform: scale(0.8);
+  }
+  to {
+    opacity: 1;
+    transform: scale(1);
+  }
+}
+
+@keyframes slideInRight {
+  from {
+    opacity: 0;
+    transform: translateX(100%);
+  }
+  to {
+    opacity: 1;
+    transform: translateX(0);
+  }
+}
+
+@keyframes slideOutRight {
+  from {
+    opacity: 1;
+    transform: translateX(0);
+  }
+  to {
+    opacity: 0;
+    transform: translateX(100%);
   }
 }
 </style>

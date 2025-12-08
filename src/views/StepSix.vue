@@ -127,8 +127,19 @@
             v-model="studentFinalPlan"
             class="main-editor"
             :disabled="finalSubmitted"
-            placeholder="在这里编辑你的最终方案...&#10;&#10;💡 提示：&#10;• 可以参考方案初稿和AI生成的参考方案&#10;• 点击右上角「AI助手」获取帮助&#10;• Ctrl+S 保存草稿"
+            placeholder="📝 开始编写你的最终方案...
+
+💡 你可以选择：
+  1️⃣ 点击上方「📋 查看初稿」复制初稿作为起点
+  2️⃣ 点击「🤖 AI助手」生成参考方案后插入
+  3️⃣ 从零开始撰写你的完整方案
+
+✨ 建议先构思整体结构，再逐步完善各部分
+⌨️ Ctrl+S 保存草稿"
             @keydown.ctrl.s.prevent="saveDraft"
+            @focus="handleEditorFocus"
+            @blur="handleEditorBlur"
+            @input="handleEditorInput"
           ></textarea>
         </div>
 
@@ -144,6 +155,9 @@
       <div class="action-group-left">
         <button class="secondary-btn" @click="resetFromDraft" :disabled="finalSubmitted">
           🔄 重置为初稿
+        </button>
+        <button class="secondary-btn" @click="clearEditor" :disabled="finalSubmitted">
+          🗑️ 清空编辑器
         </button>
         <button class="secondary-btn" @click="saveDraft">💾 保存草稿</button>
       </div>
@@ -269,12 +283,25 @@
               </div>
 
               <div class="reference-actions">
-                <button @click="copyReference" class="action-btn"><span>📋</span> 复制全文</button>
-                <button @click="insertReference" class="action-btn">
-                  <span>➕</span> 插入到“我的方案”
+                <button @click="copyAIReference" class="action-btn copy-btn">
+                  <span class="btn-icon">📋</span>
+                  <span class="btn-text">复制到剪贴板</span>
                 </button>
-                <button @click="regenerateReference" class="action-btn warning">
-                  <span>🔄</span> 重新生成
+                <button @click="insertAIReference" class="action-btn insert-btn">
+                  <span class="btn-icon">➕</span>
+                  <span class="btn-text">插入到编辑器</span>
+                </button>
+                <button
+                  @click="regenerateReference"
+                  class="action-btn warning"
+                  :disabled="isGenerating"
+                  :title="isGenerating ? '正在生成，请稍候...' : '重新生成参考方案'"
+                >
+                  <span v-if="isGenerating">
+                    <span class="loading-dots"> <span></span><span></span><span></span> </span>
+                    重新生成中...
+                  </span>
+                  <span v-else> <span>🔄</span> 重新生成 </span>
                 </button>
               </div>
 
@@ -289,6 +316,22 @@
       <!-- 遮罩层 -->
       <transition name="fade">
         <div v-if="showAIAssistant" class="drawer-overlay" @click="closeAIAssistant"></div>
+      </transition>
+    </Teleport>
+    <!-- Toast 提示 -->
+    <Teleport to="body">
+      <transition name="toast-slide">
+        <div v-if="showRegenerateToast" class="regenerate-toast">
+          <div class="toast-content">
+            <div class="toast-icon">
+              <span class="loading-spinner">⚙️</span>
+            </div>
+            <div class="toast-text">
+              <div class="toast-title">正在重新生成方案</div>
+              <div class="toast-subtitle">预计需要30-60秒，请耐心等待，不要重复操作...</div>
+            </div>
+          </div>
+        </div>
       </transition>
     </Teleport>
   </div>
@@ -505,9 +548,23 @@ const closeDraftPreview = () => {
   showDraftPreview.value = false
 }
 
-const copyDraftToEditor = () => {
+const copyDraftToEditor = async () => {
+  // 如果编辑器有内容，先确认
+  if (studentFinalPlan.value.trim()) {
+    if (!confirm('编辑器中已有内容，确定要用初稿替换吗？')) {
+      return
+    }
+  }
+
   studentFinalPlan.value = studentInitialDraft.value
   closeDraftPreview()
+
+  const sessionId = getSessionId()
+  await trackStep6Event('step6_draft_copy_to_editor', sessionId, {
+    draftLength: studentInitialDraft.value.length,
+  })
+
+  alert('✅ 初稿已复制到编辑器')
 }
 
 const toggleFullscreen = async () => {
@@ -537,6 +594,32 @@ const resetFromDraft = async () => {
       wordCount: wordCount.value,
       action: 'reset',
     })
+  }
+}
+
+// 🔥 新增函数：清空编辑器
+const clearEditor = async () => {
+  if (!studentFinalPlan.value.trim()) {
+    alert('编辑器已经是空的了')
+    return
+  }
+
+  if (confirm('确定要清空编辑器吗？此操作不可恢复。')) {
+    const previousLength = studentFinalPlan.value.length
+    studentFinalPlan.value = ''
+
+    const sessionId = getSessionId()
+    await trackStep6Event('step6_editor_clear', sessionId, {
+      clearedLength: previousLength,
+    })
+
+    editEvents.value.push({
+      timestamp: new Date().toISOString(),
+      wordCount: 0,
+      action: 'reset',
+    })
+
+    alert('✅ 编辑器已清空')
   }
 }
 
@@ -832,6 +915,7 @@ const scrollChatToBottom = () => {
 }
 
 // ==================== 参考方案 ====================
+const showRegenerateToast = ref(false)
 const generateReference = async () => {
   isGenerating.value = true
 
@@ -871,16 +955,30 @@ const regenerateReference = async () => {
   if (confirm('确定要重新生成参考方案吗？当前的参考方案将被替换。')) {
     const sessionId = getSessionId()
 
+    // 🔥 新增：显示Toast提示
+    showRegenerateToast.value = true
+
     // 埋点 - 重新生成
     await trackStep6Event('step6_reference_regenerate', sessionId, {
       previousVersion: solutionVersion.value,
     })
 
-    await generateReference()
+    try {
+      await generateReference()
+
+      // 🔥 新增：生成成功后2秒隐藏Toast
+      setTimeout(() => {
+        showRegenerateToast.value = false
+      }, 2000)
+    } catch (error) {
+      // 🔥 新增：生成失败也要隐藏Toast
+      showRegenerateToast.value = false
+      console.error('重新生成失败:', error)
+    }
   }
 }
 
-const copyReference = async () => {
+const copyAIReference = async () => {
   navigator.clipboard.writeText(aiReferenceSolution.value)
 
   // 标记已使用AI参考
@@ -900,34 +998,76 @@ const copyReference = async () => {
   alert('📋 已复制到剪贴板')
 }
 
-const insertReference = async () => {
-  const sessionId = getSessionId()
-  const previousWordCount = wordCount.value
-
-  if (studentFinalPlan.value.trim()) {
-    if (confirm('确定要插入参考方案吗？这会添加到当前内容之后。')) {
-      studentFinalPlan.value += '\n\n' + aiReferenceSolution.value
-    } else {
-      return
-    }
-  } else {
-    studentFinalPlan.value = aiReferenceSolution.value
+// 🔥 新增函数：插入AI参考方案到编辑器
+const insertAIReference = async () => {
+  if (!aiReferenceSolution.value) {
+    alert('请先生成AI参考方案')
+    return
   }
 
-  // 标记已使用AI参考
+  const sessionId = getSessionId()
+
+  // 如果编辑器为空，直接插入
+  if (!studentFinalPlan.value.trim()) {
+    studentFinalPlan.value = aiReferenceSolution.value
+
+    await trackStep6Event('step6_reference_insert', sessionId, {
+      method: 'direct_insert',
+      editorWasEmpty: true,
+      aiContentLength: aiReferenceSolution.value.length,
+    })
+
+    // 记录使用AI参考
+    hasUsedAIReference.value = true
+    aiReferenceUsageLog.value.push({
+      action: 'insert',
+      timestamp: new Date().toISOString(),
+      aiContentLength: aiReferenceSolution.value.length,
+    })
+
+    alert('✅ AI参考方案已插入到编辑器')
+    return
+  }
+
+  // 如果编辑器有内容，询问用户
+  const userChoice = confirm(
+    '编辑器中已有内容，请选择插入方式：\n\n' +
+      '点击「确定」= 替换全部内容\n' +
+      '点击「取消」= 追加到末尾',
+  )
+
+  if (userChoice) {
+    // 替换模式
+    const originalLength = studentFinalPlan.value.length
+    studentFinalPlan.value = aiReferenceSolution.value
+
+    await trackStep6Event('step6_reference_insert', sessionId, {
+      method: 'replace',
+      editorWasEmpty: false,
+      originalLength: originalLength,
+      aiContentLength: aiReferenceSolution.value.length,
+    })
+
+    alert('✅ 已替换为AI参考方案')
+  } else {
+    // 追加模式
+    studentFinalPlan.value += '\n\n---\n\n' + aiReferenceSolution.value
+
+    await trackStep6Event('step6_reference_insert', sessionId, {
+      method: 'append',
+      editorWasEmpty: false,
+      aiContentLength: aiReferenceSolution.value.length,
+    })
+
+    alert('✅ AI参考方案已追加到末尾')
+  }
+
+  // 记录使用AI参考
   hasUsedAIReference.value = true
   aiReferenceUsageLog.value.push({
     action: 'insert',
     timestamp: new Date().toISOString(),
     aiContentLength: aiReferenceSolution.value.length,
-  })
-
-  // 埋点 - 插入参考方案
-  await trackStep6Event('step6_reference_insert', sessionId, {
-    previousWordCount,
-    newWordCount: wordCount.value,
-    aiContentLength: aiReferenceSolution.value.length,
-    solutionVersion: solutionVersion.value,
   })
 }
 
@@ -1004,7 +1144,7 @@ onMounted(async () => {
     if (isDifferentFromDraft) {
       // ✅ 只有真正编辑过才提示
       const useOldDraft = confirm('检测到未提交的编辑内容，是否恢复？')
-      studentFinalPlan.value = useOldDraft ? savedDraft.content : studentInitialDraft.value
+      studentFinalPlan.value = useOldDraft ? savedDraft.content : ''
 
       // 埋点 - 恢复草稿选择
       await trackStep6Event('step6_draft_restore_prompt', getSessionId(), {
@@ -1014,12 +1154,12 @@ onMounted(async () => {
       })
     } else {
       // ✅ 草稿与初稿相同，直接使用初稿，不提示
-      console.log('📋 Step6 - 草稿与初稿相同，直接使用初稿')
-      studentFinalPlan.value = studentInitialDraft.value
+      console.log('📋 Step6 - 草稿与初稿相同，清空编辑器')
+      studentFinalPlan.value = ''
     }
   } else {
-    // ✅ 没有草稿，使用初稿
-    studentFinalPlan.value = studentInitialDraft.value
+    // ✅ 没有草稿，清空编辑器
+    studentFinalPlan.value = ''
   }
 
   // 记录初始内容
@@ -1027,6 +1167,13 @@ onMounted(async () => {
 
   // 🔥 埋点 - 进入页面
   await trackEnter()
+
+  if (!simpleStorage.getItem('step6_first_visit_shown')) {
+    setTimeout(() => {
+      alert('💡 提示：编辑器初始为空，你可以从"查看初稿"开始，或使用AI助手生成参考方案')
+      simpleStorage.setItem('step6_first_visit_shown', true)
+    }, 500)
+  }
 })
 
 onUnmounted(() => {
@@ -1870,6 +2017,18 @@ watch(aiReferenceSolution, (newValue) => {
 }
 
 /* ==================== 参考方案 ==================== */
+/* 🔥 新增：插入按钮样式 */
+.insert-btn {
+  background: linear-gradient(135deg, #10b981 0%, #059669 100%);
+  color: white;
+}
+
+.insert-btn:hover {
+  background: linear-gradient(135deg, #059669 0%, #047857 100%);
+  transform: translateY(-2px);
+  box-shadow: 0 6px 20px rgba(16, 185, 129, 0.4);
+}
+
 .reference-content {
   padding: 20px;
 }
@@ -1939,9 +2098,6 @@ watch(aiReferenceSolution, (newValue) => {
   border-radius: 50%;
   background: currentColor;
   animation: bounce 1.4s infinite ease-in-out;
-}
-
-.reference-display {
 }
 
 .reference-header {
@@ -2177,5 +2333,134 @@ watch(aiReferenceSolution, (newValue) => {
 
 .expand-btn:hover {
   background: rgba(255, 255, 255, 0.3);
+}
+
+/* ==================== Toast 提示样式 ==================== */
+.regenerate-toast {
+  position: fixed;
+  top: 80px;
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 9999;
+  background: white;
+  border-radius: 12px;
+  box-shadow:
+    0 8px 32px rgba(0, 0, 0, 0.12),
+    0 0 0 1px rgba(245, 158, 11, 0.1);
+  padding: 16px 24px;
+  max-width: 450px;
+  border: 2px solid #f59e0b;
+}
+
+.toast-content {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.toast-icon {
+  flex-shrink: 0;
+  width: 40px;
+  height: 40px;
+  background: linear-gradient(135deg, #fef3c7, #fde68a);
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 20px;
+}
+
+.loading-spinner {
+  display: inline-block;
+  animation: spin 1s linear infinite;
+}
+
+@keyframes spin {
+  from {
+    transform: rotate(0deg);
+  }
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+.toast-text {
+  flex: 1;
+}
+
+.toast-title {
+  font-size: 15px;
+  font-weight: 600;
+  color: #92400e;
+  margin-bottom: 4px;
+}
+
+.toast-subtitle {
+  font-size: 13px;
+  color: #d97706;
+  line-height: 1.4;
+}
+
+/* Toast动画 */
+.toast-slide-enter-active,
+.toast-slide-leave-active {
+  transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+.toast-slide-enter-from {
+  opacity: 0;
+  transform: translateX(-50%) translateY(-20px);
+}
+
+.toast-slide-leave-to {
+  opacity: 0;
+  transform: translateX(-50%) translateY(-20px);
+}
+
+/* 按钮禁用状态增强 */
+.reference-actions .action-btn:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+  transform: none;
+}
+
+.reference-actions .action-btn:disabled:hover {
+  background: white;
+  color: #667eea;
+  transform: none;
+}
+
+.reference-actions .action-btn.warning:disabled {
+  background: white;
+  color: #f59e0b;
+  border-color: #f59e0b;
+}
+
+.reference-actions .action-btn.warning:disabled:hover {
+  background: white;
+  color: #f59e0b;
+}
+
+/* ==================== 响应式优化 ==================== */
+@media (max-width: 768px) {
+  .regenerate-toast {
+    max-width: 90%;
+    padding: 14px 20px;
+    top: 60px;
+  }
+
+  .toast-icon {
+    width: 36px;
+    height: 36px;
+    font-size: 18px;
+  }
+
+  .toast-title {
+    font-size: 14px;
+  }
+
+  .toast-subtitle {
+    font-size: 12px;
+  }
 }
 </style>

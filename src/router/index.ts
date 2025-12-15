@@ -1,6 +1,7 @@
+// src/router/index.ts - 更新版本，包含教师端路由
 import { createRouter, createWebHistory } from 'vue-router'
 
-// 组件导入
+// 学生端组件导入
 const UserLogin = () => import('@/views/UserLogin.vue')
 const HomeView = () => import('@/views/HomeView.vue')
 const ExperimentPlatform = () => import('@/views/ExperimentPlatform.vue')
@@ -10,19 +11,23 @@ const StepThree = () => import('@/views/StepThree.vue')
 const StepFour = () => import('@/views/StepFour.vue')
 const StepFive = () => import('@/views/StepFive.vue')
 const StepSix = () => import('@/views/StepSix.vue')
-const StepSeven = () => import('@/views/StepSeven.vue') // 新增：原来的StepSix变成StepSeven
+const StepSeven = () => import('@/views/StepSeven.vue')
 
-// 检查用户是否已登录
+// 教师端组件导入
+const TeacherLogin = () => import('@/views/TeacherLogin.vue')
+const TeacherLayout = () => import('@/views/TeacherLayout.vue')
+const TeacherDashboard = () => import('@/views/TeacherDashboard.vue')
+const StudentDetail = () => import('@/views/StudentDetail.vue')
+
+// 检查学生是否已登录
 const isAuthenticated = () => {
   const experimentId = localStorage.getItem('experimentId')
   const loginTime = localStorage.getItem('loginTime')
 
-  // 检查是否有实验编号
   if (!experimentId) {
     return false
   }
 
-  // 检查登录时间（可选：设置会话过期时间）
   if (loginTime) {
     const loginDate = new Date(loginTime)
     const now = new Date()
@@ -40,7 +45,35 @@ const isAuthenticated = () => {
   return true
 }
 
-// 退出登录函数
+// 检查教师是否已登录
+const isTeacherAuthenticated = () => {
+  const token = localStorage.getItem('teacherToken')
+  const loginTime = localStorage.getItem('teacherLoginTime')
+
+  if (!token) {
+    return false
+  }
+
+  if (loginTime) {
+    const loginDate = new Date(loginTime)
+    const now = new Date()
+    const hoursDiff = (now.getTime() - loginDate.getTime()) / (1000 * 60 * 60)
+
+    // 如果登录超过24小时，要求重新登录
+    if (hoursDiff > 24) {
+      localStorage.removeItem('teacherToken')
+      localStorage.removeItem('teacherId')
+      localStorage.removeItem('teacherName')
+      localStorage.removeItem('teacherRole')
+      localStorage.removeItem('teacherLoginTime')
+      return false
+    }
+  }
+
+  return true
+}
+
+// 学生退出登录函数
 const logout = () => {
   localStorage.removeItem('experimentId')
   localStorage.removeItem('studentName')
@@ -53,15 +86,16 @@ const router = createRouter({
   routes: [
     {
       path: '/',
-      redirect: '/login', // 默认重定向到登录页
+      redirect: '/login',
     },
+    // ==================== 学生端路由 ====================
     {
       path: '/login',
       name: 'login',
       component: UserLogin,
       meta: {
         requiresAuth: false,
-        title: '登录 - 智能问题解决工作台',
+        title: '学生登录 - 智能问题解决工作台',
       },
     },
     {
@@ -84,7 +118,7 @@ const router = createRouter({
       children: [
         {
           path: '',
-          redirect: 'step1', // 默认跳转到第一步
+          redirect: 'step1',
         },
         {
           path: 'step1',
@@ -122,7 +156,7 @@ const router = createRouter({
           component: StepFour,
           meta: {
             requiresAuth: true,
-            title: '提示词设计 - 实验平台', // 新增：提示词设计步骤
+            title: '提示词设计 - 实验平台',
             stepNumber: 4,
           },
         },
@@ -132,7 +166,7 @@ const router = createRouter({
           component: StepFive,
           meta: {
             requiresAuth: true,
-            title: '应急调整 - 实验平台', // 更新：原来的StepFour标题
+            title: '应急调整 - 实验平台',
             stepNumber: 5,
           },
         },
@@ -142,7 +176,7 @@ const router = createRouter({
           component: StepSix,
           meta: {
             requiresAuth: true,
-            title: '方案整合 - 实验平台', // 更新：原来的StepFive标题
+            title: '方案整合 - 实验平台',
             stepNumber: 6,
           },
         },
@@ -152,14 +186,75 @@ const router = createRouter({
           component: StepSeven,
           meta: {
             requiresAuth: true,
-            title: '自我评估 - 实验平台', // 更新：原来的StepSix标题
+            title: '自我评估 - 实验平台',
             stepNumber: 7,
           },
         },
       ],
     },
+
+    // ==================== 教师端路由 ====================
     {
-      // 404页面
+      path: '/teacher/login',
+      name: 'teacher-login',
+      component: TeacherLogin,
+      meta: {
+        requiresTeacherAuth: false,
+        title: '教师登录 - 教师管理端',
+      },
+    },
+    {
+      path: '/teacher',
+      component: TeacherLayout,
+      meta: {
+        requiresTeacherAuth: true,
+      },
+      children: [
+        {
+          path: '',
+          redirect: '/teacher/dashboard',
+        },
+        {
+          path: 'dashboard',
+          name: 'teacher-dashboard',
+          component: TeacherDashboard,
+          meta: {
+            requiresTeacherAuth: true,
+            title: '学生数据总览 - 教师管理端',
+          },
+        },
+        {
+          path: 'student/:sessionId',
+          name: 'student-detail',
+          component: StudentDetail,
+          meta: {
+            requiresTeacherAuth: true,
+            title: '学生详细数据 - 教师管理端',
+          },
+        },
+        {
+          path: 'analytics',
+          name: 'teacher-analytics',
+          component: () => import('@/views/TeacherAnalytics.vue'),
+          meta: {
+            requiresTeacherAuth: true,
+            title: '数据分析 - 教师管理端',
+          },
+        },
+        {
+          path: 'export',
+          name: 'teacher-export',
+          component: () => import('@/views/TeacherExport.vue'),
+          meta: {
+            requiresTeacherAuth: true,
+            title: '数据导出 - 教师管理端',
+          },
+        },
+      ],
+    },
+
+    // ==================== 404页面 ====================
+    {
       path: '/:pathMatch(.*)*',
       name: 'not-found',
       component: () => import('@/views/NotFound.vue'),
@@ -175,47 +270,63 @@ router.beforeEach((to, from, next) => {
   // 设置页面标题
   document.title = (to.meta as { title?: string }).title || '智能问题解决工作台'
 
-  // 添加调试信息
-  console.log('当前访问路径:', to.path)
-  console.log('是否需要认证:', to.meta.requiresAuth)
-  console.log('是否已登录:', isAuthenticated())
+  console.log('📍 当前访问路径:', to.path)
 
-  // 检查路由是否需要认证
-  if (to.meta.requiresAuth) {
-    if (isAuthenticated()) {
-      // 已登录，允许访问
-      console.log('用户已登录，允许访问')
+  // 教师端路由验证
+  if (to.meta.requiresTeacherAuth) {
+    if (isTeacherAuthenticated()) {
+      console.log('✅ 教师已登录，允许访问')
       next()
     } else {
-      // 未登录，重定向到登录页
-      console.log('用户未登录，重定向到登录页')
+      console.log('❌ 教师未登录，重定向到教师登录页')
       next({
-        path: '/login',
-        query: { redirect: to.fullPath }, // 保存用户想要访问的页面
+        path: '/teacher/login',
+        query: { redirect: to.fullPath },
       })
     }
-  } else {
-    // 不需要认证的页面
-    if (to.path === '/login' && isAuthenticated()) {
-      // 已登录用户访问登录页，重定向到首页
-      console.log('已登录用户访问登录页，重定向到首页')
-      next('/home')
-    } else {
-      console.log('访问不需要认证的页面')
+    return
+  }
+
+  // 学生端路由验证
+  if (to.meta.requiresAuth) {
+    if (isAuthenticated()) {
+      console.log('✅ 学生已登录，允许访问')
       next()
+    } else {
+      console.log('❌ 学生未登录，重定向到学生登录页')
+      next({
+        path: '/login',
+        query: { redirect: to.fullPath },
+      })
     }
+    return
+  }
+
+  // 不需要认证的页面
+  if (to.path === '/login' && isAuthenticated()) {
+    console.log('✅ 已登录学生访问登录页，重定向到首页')
+    next('/home')
+  } else if (to.path === '/teacher/login' && isTeacherAuthenticated()) {
+    console.log('✅ 已登录教师访问登录页，重定向到Dashboard')
+    next('/teacher/dashboard')
+  } else {
+    console.log('✅ 访问不需要认证的页面')
+    next()
   }
 })
 
 // 全局后置路由守卫
 router.afterEach((to, from) => {
-  // 记录页面访问日志（可选）
+  // 记录学生页面访问日志
   const experimentId = localStorage.getItem('experimentId')
   if (experimentId && to.meta.stepNumber) {
-    console.log(`用户 ${experimentId} 访问了步骤 ${to.meta.stepNumber}`)
+    console.log(`📊 学生 ${experimentId} 访问了步骤 ${to.meta.stepNumber}`)
+  }
 
-    // 可以在这里调用API记录用户的学习路径
-    // trackUserProgress(experimentId, to.meta.stepNumber)
+  // 记录教师页面访问日志
+  const teacherId = localStorage.getItem('teacherId')
+  if (teacherId && to.path.startsWith('/teacher')) {
+    console.log(`👨‍🏫 教师 ${teacherId} 访问了 ${to.path}`)
   }
 })
 

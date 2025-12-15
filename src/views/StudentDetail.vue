@@ -267,6 +267,10 @@
         <div v-show="activeTab === 'questionnaire'" class="tab-content">
           <div v-if="studentData?.questionnaireData" class="questionnaire-section">
             <h3 class="section-title">问卷结果</h3>
+            <p class="section-desc">
+              完成时间: {{ formatTime(studentData.questionnaireData.completedAt) }} | 用时:
+              {{ studentData.questionnaireData.totalTime }} 分钟
+            </p>
 
             <!-- 分数卡片 -->
             <div class="scores-grid">
@@ -278,7 +282,7 @@
                     {{ studentData.questionnaireData.scores.ability.average.toFixed(2) }}
                   </div>
                   <div class="score-sub">
-                    总分: {{ studentData.questionnaireData.scores.ability.total }}
+                    总分: {{ studentData.questionnaireData.scores.ability.total }} / 60
                   </div>
                 </div>
               </div>
@@ -290,7 +294,7 @@
                     {{ studentData.questionnaireData.scores.collaboration.average.toFixed(2) }}
                   </div>
                   <div class="score-sub">
-                    总分: {{ studentData.questionnaireData.scores.collaboration.total }}
+                    总分: {{ studentData.questionnaireData.scores.collaboration.total }} / 60
                   </div>
                 </div>
               </div>
@@ -302,17 +306,106 @@
                     {{ studentData.questionnaireData.scores.experience.average.toFixed(2) }}
                   </div>
                   <div class="score-sub">
-                    总分: {{ studentData.questionnaireData.scores.experience.total }}
+                    总分: {{ studentData.questionnaireData.scores.experience.total }} / 45
                   </div>
                 </div>
               </div>
             </div>
 
+            <!-- 🔥 详细题目列表 -->
+            <div
+              v-if="studentData.questionnaireData.detailedAnswers"
+              class="detailed-answers-container"
+            >
+              <!-- 能力问卷 -->
+              <div class="question-category">
+                <h4 class="category-title">
+                  <span class="category-icon">🎯</span>
+                  （一）能力问卷（12题）
+                </h4>
+                <div class="questions-list">
+                  <div
+                    v-for="q in studentData.questionnaireData.detailedAnswers.ability"
+                    :key="q.id"
+                    class="question-item"
+                  >
+                    <div class="question-header">
+                      <span class="question-number">Q{{ q.number }}</span>
+                      <span class="question-text">{{ q.text }}</span>
+                    </div>
+                    <div class="question-answer">
+                      <span class="answer-value" :class="'score-' + q.answer">
+                        {{ q.answer }} 分
+                      </span>
+                      <span class="answer-text">{{ q.answerText }}</span>
+                    </div>
+                  </div>
+                </div>
+              </div>
+
+              <!-- 人机协作问卷 -->
+              <div class="question-category">
+                <h4 class="category-title">
+                  <span class="category-icon">🤝</span>
+                  （二）人机协作模式问卷（12题）
+                </h4>
+                <div class="questions-list">
+                  <div
+                    v-for="q in studentData.questionnaireData.detailedAnswers.collaboration"
+                    :key="q.id"
+                    class="question-item"
+                  >
+                    <div class="question-header">
+                      <span class="question-number">Q{{ q.number }}</span>
+                      <span class="question-text">{{ q.text }}</span>
+                    </div>
+                    <div class="question-answer">
+                      <span class="answer-value" :class="'score-' + q.answer">
+                        {{ q.answer }} 分
+                      </span>
+                      <span class="answer-text">{{ q.answerText }}</span>
+                    </div>
+                  </div>
+                </div>
+              </div>
+
+              <!-- 使用体验问卷 -->
+              <div class="question-category">
+                <h4 class="category-title">
+                  <span class="category-icon">⭐</span>
+                  （三）使用体验问卷（9题）
+                </h4>
+                <div class="questions-list">
+                  <div
+                    v-for="q in studentData.questionnaireData.detailedAnswers.experience"
+                    :key="q.id"
+                    class="question-item"
+                  >
+                    <div class="question-header">
+                      <span class="question-number">Q{{ q.number }}</span>
+                      <span class="question-text">{{ q.text }}</span>
+                    </div>
+                    <div class="question-answer">
+                      <span class="answer-value" :class="'score-' + q.answer">
+                        {{ q.answer }} 分
+                      </span>
+                      <span class="answer-text">{{ q.answerText }}</span>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            <!-- 如果没有详细答案数据，显示旧版本 -->
+            <div v-else class="legacy-questionnaire-notice">
+              <p>💡 此学生的问卷数据为旧版本，暂不支持显示详细题目。</p>
+            </div>
+
             <!-- 开放性反馈 -->
-            <div v-if="studentData.questionnaireData.answers.feedback" class="feedback-section">
-              <h4 class="subsection-title">开放性反馈</h4>
+            <div v-if="studentData.questionnaireData.feedback" class="feedback-section">
+              <h4 class="subsection-title">📝 开放性反馈</h4>
               <div class="feedback-content">
-                {{ studentData.questionnaireData.answers.feedback }}
+                {{ studentData.questionnaireData.feedback }}
               </div>
             </div>
           </div>
@@ -377,9 +470,19 @@ interface BehaviorStats {
   }
 }
 
+// 🔥 保留原有接口（其他地方可能在用）
 interface QuestionAnswer {
   question: string
   answer: number | string | null
+}
+
+// 🔥 新增：详细问题答案接口
+interface DetailedQuestionAnswer {
+  id: string
+  number: number
+  text: string
+  answer: number | null
+  answerText: string
 }
 
 interface QuestionnaireScores {
@@ -397,6 +500,7 @@ interface QuestionnaireScores {
   }
 }
 
+// 🔥 修改：添加 detailedAnswers 字段
 interface QuestionnaireData {
   completedAt: string
   totalTime: number
@@ -407,6 +511,21 @@ interface QuestionnaireData {
     experience: QuestionAnswer[]
     feedback: string
   }
+  // 🔥 新增：详细答案（包含题目文本）
+  detailedAnswers?: {
+    ability: DetailedQuestionAnswer[]
+    collaboration: DetailedQuestionAnswer[]
+    experience: DetailedQuestionAnswer[]
+  }
+  feedback?: string
+}
+
+interface DetailedQuestionAnswer {
+  id: string
+  number: number
+  text: string
+  answer: number | null
+  answerText: string
 }
 
 interface BasicInfo {
@@ -1214,5 +1333,161 @@ onMounted(() => {
 
 .retry-button:hover {
   background: #2563eb;
+}
+
+/* 🔥 详细问卷答案样式 */
+.detailed-answers-container {
+  margin-top: 30px;
+}
+
+.question-category {
+  margin-bottom: 40px;
+  background: #f8f9fa;
+  border-radius: 12px;
+  padding: 24px;
+}
+
+.category-title {
+  font-size: 18px;
+  font-weight: 600;
+  color: #1f2937;
+  margin-bottom: 20px;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.category-icon {
+  font-size: 24px;
+}
+
+.questions-list {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.question-item {
+  background: white;
+  border-radius: 8px;
+  padding: 16px;
+  border-left: 4px solid #e5e7eb;
+  transition: all 0.3s ease;
+}
+
+.question-item:hover {
+  border-left-color: #3b82f6;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.05);
+}
+
+.question-header {
+  display: flex;
+  gap: 12px;
+  margin-bottom: 12px;
+  align-items: flex-start;
+}
+
+.question-number {
+  background: #3b82f6;
+  color: white;
+  padding: 4px 10px;
+  border-radius: 6px;
+  font-size: 13px;
+  font-weight: 600;
+  flex-shrink: 0;
+}
+
+.question-text {
+  flex: 1;
+  color: #374151;
+  font-size: 15px;
+  line-height: 1.6;
+}
+
+.question-answer {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding-left: 55px;
+}
+
+.answer-value {
+  font-weight: 700;
+  font-size: 16px;
+  padding: 4px 12px;
+  border-radius: 6px;
+  min-width: 60px;
+  text-align: center;
+}
+
+/* 根据分数显示不同颜色 */
+.answer-value.score-1 {
+  background: #fee2e2;
+  color: #991b1b;
+}
+
+.answer-value.score-2 {
+  background: #fed7aa;
+  color: #9a3412;
+}
+
+.answer-value.score-3 {
+  background: #fef3c7;
+  color: #92400e;
+}
+
+.answer-value.score-4 {
+  background: #d1fae5;
+  color: #065f46;
+}
+
+.answer-value.score-5 {
+  background: #d1fae5;
+  color: #065f46;
+}
+
+.answer-text {
+  color: #6b7280;
+  font-size: 14px;
+  font-weight: 500;
+}
+
+.feedback-section {
+  margin-top: 30px;
+  background: #f0f9ff;
+  border-radius: 12px;
+  padding: 24px;
+  border-left: 4px solid #3b82f6;
+}
+
+.subsection-title {
+  font-size: 16px;
+  font-weight: 600;
+  color: #1f2937;
+  margin-bottom: 16px;
+}
+
+.feedback-content {
+  color: #374151;
+  line-height: 1.8;
+  font-size: 15px;
+  white-space: pre-wrap;
+  background: white;
+  padding: 16px;
+  border-radius: 8px;
+}
+
+.legacy-questionnaire-notice {
+  background: #fef3c7;
+  border-left: 4px solid #f59e0b;
+  padding: 1.5rem;
+  border-radius: 8px;
+  margin-top: 1.5rem;
+}
+
+.legacy-questionnaire-notice p {
+  margin: 0;
+  color: #92400e;
+  font-weight: 500;
 }
 </style>

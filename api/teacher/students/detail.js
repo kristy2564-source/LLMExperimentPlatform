@@ -272,9 +272,60 @@ export default async function handler(req, res) {
       },
     }
 
-    // 5. 整理问卷数据
+    // 5. 🔥 整理问卷数据（包含每道题的完整信息）
     let questionnaireData = null
     if (questionnaire) {
+      // 🔥 定义所有题目的文本
+      const questionTexts = {
+        // 能力问卷（12题）
+        ability_q1: '我能快速判断任务中哪些信息是最重要的。',
+        ability_q2: '我善于从多个信息来源中整合相关内容。',
+        ability_q3: '当信息分散时,我也能组织出解决思路。',
+        ability_q4: '我愿意尝试不同的策略来构思哪种效果更好。',
+        ability_q5: '我认为自己设计的方案是可行且易于实施的。',
+        ability_q6: '如果原策略效果不好,我会立刻尝试新方法。',
+        ability_q7: '我总是确保我的每一步都与问题目标一致。',
+        ability_q8: '我在解决问题时会考虑所有环境条件之间的关系。',
+        ability_q9: '我倾向于从整体上把握问题,而非只看细节。',
+        ability_q10: '我在完成任务后会回顾哪些地方做得不够好。',
+        ability_q11: '我能察觉到自己是否需要帮助。',
+        ability_q12: '如果发现问题,我会重新评估并修改我的思路。',
+
+        // 人机协作问卷（12题）
+        collaboration_q1: '在确定问题时,我依赖AI来生成或解释任务说明。',
+        collaboration_q2: '我觉得AI比我更擅长快速识别任务的核心问题。',
+        collaboration_q3: '我认为AI在提供解决问题所需的信息上比我发挥了更大作用。',
+        collaboration_q4: '我常直接采用AI生成的方案作为解决方案的一部分。',
+        collaboration_q5: '我会在没有太多修改的情况下使用AI的输出。',
+        collaboration_q6: '在解决问题时,我主要依靠自己的判断和知识,而不是AI。',
+        collaboration_q7: '即使AI能够提供帮助,我也倾向于独立完成任务。',
+        collaboration_q8: '我完成复杂问题解决任务时几乎不使用AI。',
+        collaboration_q9: '我会自己提出策略,引导AI帮助我澄清问题情境。',
+        collaboration_q10: '我会根据AI的反馈修改我的问题定义和策略,使之更符合目标。',
+        collaboration_q11: '我会批判性地阅读AI生成的信息,而不是完全接受。',
+        collaboration_q12: '当AI的建议不适合时,我会果断放弃它。',
+
+        // 使用体验问卷（9题）
+        experience_q1: '我觉得使用该智能体是容易理解和操作的。',
+        experience_q2: '我在学习任务中使用该智能体时,几乎不需要额外的技术支持。',
+        experience_q3: '我觉得智能体能够很好地理解我的提问意图。',
+        experience_q4: '我觉得智能体给出的帮助与我的需求是匹配的。',
+        experience_q5: '我觉得智能体的解释对我有用。',
+        experience_q6: '我认为使用该智能体能够让我更有效地完成任务。',
+        experience_q7: '我认为使用智能体能够提升我的问题解决能力。',
+        experience_q8: '总体而言,我对该智能体的使用体验是满意的。',
+        experience_q9: '我愿意在未来的学习中继续使用这类智能体。',
+      }
+
+      // 🔥 答案选项文本
+      const optionTexts = {
+        1: '非常不同意',
+        2: '不同意',
+        3: '一般',
+        4: '同意',
+        5: '非常同意',
+      }
+
       questionnaireData = {
         completedAt: questionnaire.completed_at,
         totalTime: questionnaire.total_time_minutes,
@@ -292,25 +343,44 @@ export default async function handler(req, res) {
             average: questionnaire.experience_score_average,
           },
         },
-        answers: {
-          // 能力相关问题
-          ability: Array.from({ length: 9 }, (_, i) => ({
-            question: `ability_q${i + 1}`,
-            answer: questionnaire[`ability_q${i + 1}`] || null,
-          })),
-          // 协作相关问题
-          collaboration: Array.from({ length: 9 }, (_, i) => ({
-            question: `collaboration_q${i + 1}`,
-            answer: questionnaire[`collaboration_q${i + 1}`] || null,
-          })),
-          // 体验相关问题
-          experience: Array.from({ length: 9 }, (_, i) => ({
-            question: `experience_q${i + 1}`,
-            answer: questionnaire[`experience_q${i + 1}`] || null,
-          })),
-          // 开放性反馈
-          feedback: questionnaire.feedback_open || '',
+        // 🔥 返回每道题的详细信息
+        detailedAnswers: {
+          ability: Array.from({ length: 12 }, (_, i) => {
+            const qId = `ability_q${i + 1}`
+            const answerValue = questionnaire[qId]
+            return {
+              id: qId,
+              number: i + 1,
+              text: questionTexts[qId],
+              answer: answerValue,
+              answerText: answerValue ? optionTexts[answerValue] : '未回答',
+            }
+          }),
+          collaboration: Array.from({ length: 12 }, (_, i) => {
+            const qId = `collaboration_q${i + 1}`
+            const answerValue = questionnaire[qId]
+            return {
+              id: qId,
+              number: i + 1,
+              text: questionTexts[qId],
+              answer: answerValue,
+              answerText: answerValue ? optionTexts[answerValue] : '未回答',
+            }
+          }),
+          experience: Array.from({ length: 9 }, (_, i) => {
+            const qId = `experience_q${i + 1}`
+            const answerValue = questionnaire[qId]
+            return {
+              id: qId,
+              number: i + 1,
+              text: questionTexts[qId],
+              answer: answerValue,
+              answerText: answerValue ? optionTexts[answerValue] : '未回答',
+            }
+          }),
         },
+        // 开放性反馈
+        feedback: questionnaire.feedback_open || '',
       }
     }
 

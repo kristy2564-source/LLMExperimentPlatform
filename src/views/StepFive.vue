@@ -1216,12 +1216,56 @@ const closeConfirmDialog = () => {
   showConfirmDialog.value = false
 }
 
-// 🔥 修改：确认进入下一步 - 保存编辑后的快照
+// 🔥 新增：保存最终快照到数据库的函数
+const saveFinalSnapshotToDB = async (snapshotData: {
+  sessionId: string
+  step: number
+  stage: number
+  userInput: string
+  aiResponse: string
+  conversationCount: number
+  timestamp: Date
+  context: string
+  isFinalSnapshot: boolean
+  finalAnswerContent: string
+}): Promise<void> => {
+  try {
+    const experimentId = localStorage.getItem('experimentId')
+    const studentName = localStorage.getItem('studentName')
+
+    await fetch('/api/conversations/save', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'X-Experiment-ID': experimentId || '',
+      },
+      body: JSON.stringify({
+        ...snapshotData,
+        experimentId,
+        studentName,
+      }),
+    })
+
+    console.log('✅ Step5 - 最终快照已保存到数据库')
+  } catch (error) {
+    console.error('❌ Step5 - 保存最终快照失败:', error)
+  }
+}
+
+// 🔥 修改：确认进入下一步 - 保存编辑后的快照并添加数据库保存
 const confirmNextStep = async () => {
   // 1. 使用编辑后的内容作为最终快照
   finalAnswerSnapshot.value = editableFinalAnswer.value.trim()
   finalAnswerConfirmed.value = true
   showConfirmDialog.value = false
+
+  // 🔥 内容验证
+  if (!finalAnswerSnapshot.value || finalAnswerSnapshot.value.length < 10) {
+    alert('请至少填写一些内容后再继续')
+    finalAnswerConfirmed.value = false
+    showConfirmDialog.value = true
+    return
+  }
 
   // 2. 🔥 修改：保存到 localStorage（添加 sessionId）
   simpleStorage.setItem('step5_final_answer', {
@@ -1230,7 +1274,21 @@ const confirmNextStep = async () => {
     confirmedAt: new Date().toISOString(),
   })
 
-  // 3. 🔥 埋点 - 点击继续下一步
+  // 3. 🔥 新增：保存带 isFinalSnapshot 标志的记录到数据库
+  await saveFinalSnapshotToDB({
+    sessionId: conversationData.sessionId,
+    step: 5,
+    stage: 1,
+    userInput: '[FINAL_SNAPSHOT]',
+    aiResponse: '',
+    conversationCount: conversationData.conversationCount,
+    timestamp: new Date(),
+    context: 'step5_final_confirmation',
+    isFinalSnapshot: true, // 🔥 关键字段
+    finalAnswerContent: finalAnswerSnapshot.value, // 🔥 完整内容
+  })
+
+  // 4. 🔥 埋点 - 点击继续下一步
   await trackStep5Event(
     'step5_next_step_click',
     conversationData.sessionId,
@@ -1241,13 +1299,13 @@ const confirmNextStep = async () => {
     },
   )
 
-  // 4. 清除临时保存
+  // 5. 清除临时保存
   simpleStorage.removeItem('step5_temp_snapshot')
 
-  // 5. 保存到 storage（包含快照）
+  // 6. 保存到 storage（包含快照）
   saveToStorage()
 
-  // 🔥 6. 锁定当前步骤
+  // 🔥 7. 锁定当前步骤
   isStepLocked.value = true
   const updatedStepData = simpleStorage.getStepData(5) as Step5Data | null
   if (updatedStepData) {
@@ -1255,8 +1313,8 @@ const confirmNextStep = async () => {
     simpleStorage.saveStepData(5, updatedStepData)
   }
 
-  // 7. 跳转到下一步
-  goToNextStep()
+  // 8. 跳转到下一步（Step6）
+  router.push('/experiment/step6')
 }
 
 const goToNextStep = () => {

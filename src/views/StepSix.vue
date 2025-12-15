@@ -748,12 +748,120 @@ const submitFinalSolution = async () => {
 const submitToServer = async (content: string, similarityResult: SimilarityResult | null) => {
   const sessionId = getSessionId()
 
-  const componentSnapshots = {
-    step2Final: simpleStorage.getItem('step2_final_answer')?.content || null,
-    step3Final: simpleStorage.getItem('step3_final_answer')?.content || null,
-    step4Final: simpleStorage.getItem('step4_final_answer')?.content || null,
-    step5Final: simpleStorage.getItem('step5_final_answer')?.content || null,
+  // 🔥 收集所有步骤的完整数据（不仅仅是 content）
+  const step2Data = simpleStorage.getItem<{
+    content: string
+    stage1?: string
+    stage2?: string
+    sessionId: string
+    confirmedAt: string
+  }>('step2_final_answer')
+
+  const step3Data = simpleStorage.getItem<{
+    content: string
+    sessionId: string
+    confirmedAt: string
+  }>('step3_final_answer')
+
+  const step4Data = simpleStorage.getItem<{
+    content: string
+    sessionId: string
+    confirmedAt: string
+  }>('step4_final_answer')
+
+  const step5Data = simpleStorage.getItem<{
+    content: string
+    sessionId: string
+    confirmedAt: string
+  }>('step5_final_answer')
+
+  // 🔥 构建完整的提交数据
+  const submitData = {
+    // 基础信息
+    sessionId,
+    experimentId: localStorage.getItem('experimentId') || '',
+    studentName: localStorage.getItem('studentName') || '',
+    step: 6,
+
+    // Step6 方案内容
+    solutionData: {
+      initialDraft: studentInitialDraft.value,
+      finalPlan: content, // ✅ 学生最终方案
+      aiReference: aiReferenceSolution.value || null,
+    },
+
+    // 🔥 各步骤的完整详细信息
+    stepsDetails: {
+      step2: step2Data
+        ? {
+            content: step2Data.content,
+            stage1Content: step2Data.stage1 || '',
+            stage2Content: step2Data.stage2 || '',
+            confirmedAt: step2Data.confirmedAt,
+            wasConfirmed: true,
+          }
+        : null,
+
+      step3: step3Data
+        ? {
+            content: step3Data.content,
+            confirmedAt: step3Data.confirmedAt,
+            wasConfirmed: true,
+          }
+        : null,
+
+      step4: step4Data
+        ? {
+            content: step4Data.content,
+            confirmedAt: step4Data.confirmedAt,
+            wasConfirmed: true,
+          }
+        : null,
+
+      step5: step5Data
+        ? {
+            content: step5Data.content,
+            confirmedAt: step5Data.confirmedAt,
+            wasConfirmed: true,
+          }
+        : null,
+    },
+
+    // 编辑行为
+    editBehavior: {
+      editEvents: editEvents.value,
+      totalEditEvents: editEvents.value.length,
+      hasUsedAIReference: hasUsedAIReference.value,
+      aiReferenceUsageLog: aiReferenceUsageLog.value,
+    },
+
+    // 相似度分析
+    similarityAnalysis: similarityResult,
+
+    // 对话历史
+    chatHistory: chatMessages.value.map((msg) => ({
+      type: msg.type,
+      content: msg.content,
+      timestamp: msg.timestamp,
+    })),
+
+    // 时间戳
+    submittedAt: new Date().toISOString(),
   }
+
+  // 🔥 添加日志确认数据
+  console.log('========== Step6 提交数据 ==========')
+  console.log('最终方案长度:', content.length)
+  console.log('初稿长度:', studentInitialDraft.value.length)
+  console.log('AI参考长度:', aiReferenceSolution.value?.length || 0)
+  console.log('Step2数据:', step2Data ? '✅ 存在' : '❌ 缺失')
+  console.log('Step3数据:', step3Data ? '✅ 存在' : '❌ 缺失')
+  console.log('Step4数据:', step4Data ? '✅ 存在' : '❌ 缺失')
+  console.log('Step5数据:', step5Data ? '✅ 存在' : '❌ 缺失')
+  console.log('编辑事件数:', editEvents.value.length)
+  console.log('对话历史数:', chatMessages.value.length)
+  console.log('相似度:', similarityResult?.overallSimilarity || 'N/A')
+  console.log('====================================')
 
   const response = await fetch('/api/submit-final-solution', {
     method: 'POST',
@@ -761,30 +869,7 @@ const submitToServer = async (content: string, similarityResult: SimilarityResul
       'Content-Type': 'application/json',
       'X-Experiment-ID': localStorage.getItem('experimentId') || '',
     },
-    body: JSON.stringify({
-      sessionId,
-      finalSolution: content,
-      studentInitialDraft: studentInitialDraft.value,
-      componentSnapshots,
-      submittedAt: new Date().toISOString(),
-      // 🔥 新增：编辑行为数据
-      editBehavior: {
-        editEvents: editEvents.value,
-        totalEditEvents: editEvents.value.length,
-        hasUsedAIReference: hasUsedAIReference.value,
-        aiReferenceUsageLog: aiReferenceUsageLog.value,
-      },
-      // 🔥 新增：相似度数据
-      similarityAnalysis: similarityResult
-        ? {
-            overallSimilarity: similarityResult.overallSimilarity,
-            dimensions: similarityResult.dimensions,
-            conclusion: similarityResult.conclusion,
-            description: similarityResult.description,
-            matchedKeywords: similarityResult.matchedKeywords,
-          }
-        : null,
-    }),
+    body: JSON.stringify(submitData),
   })
 
   if (!response.ok) {
@@ -830,6 +915,22 @@ const switchAITab = async (tabId: string) => {
 // ==================== 🔥 新增: 保存对话到数据库 ====================
 
 /**
+ * Step6 对话 metadata 类型定义
+ */
+interface Step6ConversationMetadata {
+  chatType?: string
+  hasStep2Context?: boolean
+  hasStep3Context?: boolean
+  hasStep4Context?: boolean
+  hasStep5Context?: boolean
+  hasDraft?: boolean
+  draftLength?: number
+  error?: string
+  errorType?: string
+  [key: string]: string | number | boolean | undefined // 允许扩展其他字段
+}
+
+/**
  * 保存Step6对话到数据库
  * 与其他步骤保持一致的数据结构
  */
@@ -842,7 +943,7 @@ const saveConversationToDB = async (conversationDataPayload: {
   conversationCount: number
   timestamp: Date
   context: string
-  metadata?: Record<string, any>
+  metadata?: Step6ConversationMetadata // ✅ 使用具体类型替代 any
 }): Promise<void> => {
   try {
     const experimentId = localStorage.getItem('experimentId')

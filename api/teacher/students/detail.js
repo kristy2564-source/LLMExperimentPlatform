@@ -1,5 +1,4 @@
-// api/teacher/students/detail.js
-// 获取单个学生详细数据API
+// api/teacher/students/detail.js - 修复版:解决对话记录重复问题
 import { MongoClient } from 'mongodb'
 
 let cachedClient = null
@@ -41,7 +40,8 @@ export default async function handler(req, res) {
       return res.status(401).json({ error: '未授权访问' })
     }
 
-    const { sessionId } = req.method === 'POST' ? req.body : req.query
+    // 从请求体或查询参数获取sessionId
+    const sessionId = req.method === 'POST' ? req.body.sessionId : req.query.sessionId
 
     if (!sessionId) {
       return res.status(400).json({ error: '缺少sessionId参数' })
@@ -69,7 +69,7 @@ export default async function handler(req, res) {
 
     console.log(`📊 查询到 ${conversations.length} 条原始记录`)
 
-    // ✅ 过滤掉EVENT标记的对话和重复记录
+    // ✅ 过滤掉EVENT标记的对话
     const realConversations = conversations.filter((conv) => {
       // 过滤条件1: userInput以[EVENT:]开头的系统事件
       if (typeof conv.userInput === 'string' && conv.userInput.startsWith('[EVENT:')) {
@@ -82,7 +82,9 @@ export default async function handler(req, res) {
       return true
     })
 
-    // ✅ 去重 + 提取求助类型 + 清理显示内容
+    console.log(`📊 过滤EVENT后: ${realConversations.length} 条记录`)
+
+    // ✅ 🔥 改进的去重逻辑 + 提取求助类型 + 清理显示内容
     const uniqueConversations = []
     const seen = new Set()
 
@@ -118,16 +120,16 @@ export default async function handler(req, res) {
         }
       }
 
-      // 🔥 改进去重key：使用清理后的内容
-      const timestampStr =
-        conv.timestamp instanceof Date
-          ? conv.timestamp.getTime().toString()
-          : new Date(conv.timestamp).getTime().toString()
+      // 🔥🔥🔥 核心修复: 使用内容作为去重key,而非时间戳
+      // 这样即使时间戳不同,但内容相同的记录也会被去重
+      const userInputKey = cleanedUserInput.trim()
+      const aiResponseKey = (conv.aiResponse || '').trim()
 
-      const key = `${conv.step}_${timestampStr}_${cleanedUserInput.substring(0, 50)}_${conv.aiResponse?.substring(0, 50)}`
+      // 使用|||作为分隔符,避免与内容本身冲突
+      const contentKey = `${conv.step}|||${userInputKey}|||${aiResponseKey}`
 
-      if (!seen.has(key)) {
-        seen.add(key)
+      if (!seen.has(contentKey)) {
+        seen.add(contentKey)
 
         // 🔥 保存清理后的对话和提取的helpType
         const cleanedConv = {
@@ -135,7 +137,7 @@ export default async function handler(req, res) {
           userInput: cleanedUserInput,
           metadata: {
             ...conv.metadata,
-            helpType: helpType || conv.metadata?.helpType, // 优先使用提取的helpType
+            helpType: helpType || conv.metadata?.helpType,
           },
         }
 
@@ -146,18 +148,21 @@ export default async function handler(req, res) {
           console.log(`📊 从userInput提取求助类型: "${helpType}", Step: ${conv.step}`)
         }
       } else {
-        console.log(`⚠️ 发现重复记录: Step ${conv.step}, Time: ${timestampStr}`)
+        // 🔥 增强的重复检测日志
+        console.log(
+          `⚠️ 去重: Step ${conv.step}, 用户输入前30字符: "${cleanedUserInput.substring(0, 30)}..."`,
+        )
       }
     }
 
     console.log(
-      `✅ 过滤后: ${uniqueConversations.length} 条有效对话（过滤掉 ${conversations.length - uniqueConversations.length} 条）`,
+      `✅ 去重完成: ${uniqueConversations.length} 条唯一对话 (去掉 ${realConversations.length - uniqueConversations.length} 条重复)`,
     )
 
     // 2. 获取问卷数据
     const questionnaire = await questionnaireCollection.findOne({ sessionId })
 
-    // 3. 按步骤组织对话数据（使用过滤后的数据）
+    // 3. 按步骤组织对话数据（使用去重后的数据）
     const conversationsByStep = {}
     const finalAnswers = {}
     const helpRequests = {
@@ -188,6 +193,16 @@ export default async function handler(req, res) {
           content: conv.metadata.finalAnswerContent,
           timestamp: conv.timestamp,
         }
+        console.log(`📋 提取 Step${step} 最终答案: ${conv.metadata.finalAnswerContent.length}字`)
+      }
+
+      // 🔥 Step6 特殊处理: 使用 context 区分最终提交
+      if (step === 6 && conv.context === 'final_solution_submission') {
+        finalAnswers[step] = {
+          content: conv.aiResponse,
+          timestamp: conv.timestamp,
+        }
+        console.log(`📋 提取 Step6 最终方案: ${conv.aiResponse.length}字`)
       }
 
       // 统计求助次数
@@ -195,10 +210,9 @@ export default async function handler(req, res) {
         helpRequests.total++
         const helpType = conv.metadata.helpType
 
-        // 🔍 添加调试日志
         console.log(`📊 求助类型: "${helpType}", Step: ${step}`)
 
-        // ✅ 修复：使用更宽松的匹配逻辑
+        // ✅ 使用更宽松的匹配逻辑
         if (helpType === 'refine' || helpType === 'optimize' || helpType === 'improve') {
           helpRequests.byType.refine++
         } else if (helpType === 'example' || helpType === 'sample' || helpType === 'demo') {
@@ -206,7 +220,6 @@ export default async function handler(req, res) {
         } else if (helpType === 'custom' || helpType === 'question' || helpType === 'ask') {
           helpRequests.byType.custom++
         } else {
-          // 未知类型，默认归类到custom
           console.log(`⚠️ 未知求助类型: "${helpType}", 归类到 custom`)
           helpRequests.byType.custom++
         }
@@ -249,7 +262,7 @@ export default async function handler(req, res) {
 
     const behaviorStats = {
       timeSpent, // 分钟
-      totalConversations: conversations.length,
+      totalConversations: uniqueConversations.length, // 🔥 修复: 使用去重后的数量
       stepDistribution,
       messageStats,
       helpRequests,
@@ -312,7 +325,7 @@ export default async function handler(req, res) {
         status: questionnaire ? '已完成' : '进行中',
         hasQuestionnaire: !!questionnaire,
       },
-      conversationsByStep, // 按步骤组织的对话历史
+      conversationsByStep, // 按步骤组织的对话历史(已去重)
       finalAnswers, // 各步骤的最终答案
       behaviorStats, // 行为统计数据
       questionnaireData, // 问卷数据
@@ -320,6 +333,7 @@ export default async function handler(req, res) {
     }
 
     console.log('✅ 学生详情数据准备完成')
+    console.log(`📊 最终数据统计: ${uniqueConversations.length} 条对话`)
 
     res.status(200).json({
       success: true,

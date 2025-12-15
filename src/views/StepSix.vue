@@ -827,17 +827,63 @@ const switchAITab = async (tabId: string) => {
   })
 }
 
+// ==================== 🔥 新增: 保存对话到数据库 ====================
+
+/**
+ * 保存Step6对话到数据库
+ * 与其他步骤保持一致的数据结构
+ */
+const saveConversationToDB = async (conversationDataPayload: {
+  sessionId: string
+  step: number
+  stage: number
+  userInput: string
+  aiResponse: string
+  conversationCount: number
+  timestamp: Date
+  context: string
+  metadata?: Record<string, any>
+}): Promise<void> => {
+  try {
+    const experimentId = localStorage.getItem('experimentId')
+    const studentName = localStorage.getItem('studentName')
+
+    const response = await fetch('/api/conversations/save', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'X-Experiment-ID': experimentId || '',
+      },
+      body: JSON.stringify({
+        ...conversationDataPayload,
+        experimentId,
+        studentName,
+      }),
+    })
+
+    if (response.ok) {
+      console.log('✅ Step6 - 对话已保存到数据库')
+    } else {
+      console.error('❌ Step6 - 保存对话失败:', response.statusText)
+    }
+  } catch (error) {
+    console.error('❌ Step6 - 保存对话失败:', error)
+    // 保存失败不影响聊天功能
+  }
+}
+
 // ==================== 对话功能 ====================
 const sendChatMessage = async () => {
   if (!chatInput.value.trim()) return
 
   const userMessage = chatInput.value.trim()
+  const sessionId = getSessionId()
+
+  // 1. 添加用户消息到本地
   addChatMessage('user', userMessage)
   chatInput.value = ''
 
   isAIThinking.value = true
-
-  const sessionId = getSessionId()
 
   // 埋点 - 发送对话
   await trackStep6Event('step6_chat_send', sessionId, {
@@ -852,6 +898,7 @@ const sendChatMessage = async () => {
   const step5Final = simpleStorage.getItem<{ content: string }>('step5_final_answer')
 
   try {
+    // 调用AI API
     const response = await fetch('/api/ai/analyze', {
       method: 'POST',
       headers: {
@@ -865,8 +912,8 @@ const sendChatMessage = async () => {
         // 🔥 修改：传递完整上下文
         context: {
           type: 'step6_chat_assistance',
-          currentPlan: studentFinalPlan.value, // 当前编辑的方案
-          initialDraft: studentInitialDraft.value, // 初稿
+          currentPlan: studentFinalPlan.value,
+          initialDraft: studentInitialDraft.value,
           // 🔥 新增：前面步骤的确认内容
           previousSteps: {
             step2: step2Final?.content || null,
@@ -887,10 +934,59 @@ const sendChatMessage = async () => {
     })
 
     const data = await response.json()
-    addChatMessage('ai', data.response || '抱歉，我暂时无法回答。')
+    const aiResponse = data.response || '抱歉，我暂时无法回答。'
+
+    // 2. 添加AI回复到本地
+    addChatMessage('ai', aiResponse)
+
+    // 🔥 3. 新增: 保存对话到数据库
+    await saveConversationToDB({
+      sessionId: sessionId,
+      step: 6,
+      stage: 1,
+      userInput: userMessage,
+      aiResponse: aiResponse,
+      conversationCount: chatMessages.value.length,
+      timestamp: new Date(),
+      context: 'step6_chat_assistant',
+      metadata: {
+        chatType: 'student_ai_conversation',
+        hasStep2Context: !!step2Final?.content,
+        hasStep3Context: !!step3Final?.content,
+        hasStep4Context: !!step4Final?.content,
+        hasStep5Context: !!step5Final?.content,
+        hasDraft: !!studentFinalPlan.value,
+        draftLength: studentFinalPlan.value.length,
+      },
+    })
+
+    // 埋点 - 收到回复
+    await trackStep6Event('step6_chat_receive', sessionId, {
+      aiResponseLength: aiResponse.length,
+      chatHistoryLength: chatMessages.value.length,
+    })
   } catch (error) {
-    console.error('对话失败:', error)
-    addChatMessage('ai', '抱歉，我暂时无法回答，请稍后重试。')
+    console.error('❌ Step6 - 对话失败:', error)
+
+    // 添加错误提示消息
+    const errorMessage = '抱歉，我暂时无法回答，请稍后重试。'
+    addChatMessage('ai', errorMessage)
+
+    // 🔥 即使失败也保存记录（用于分析错误）
+    await saveConversationToDB({
+      sessionId: sessionId,
+      step: 6,
+      stage: 1,
+      userInput: userMessage,
+      aiResponse: errorMessage,
+      conversationCount: chatMessages.value.length,
+      timestamp: new Date(),
+      context: 'step6_chat_error',
+      metadata: {
+        error: error instanceof Error ? error.message : 'Unknown error',
+        errorType: 'ai_api_failure',
+      },
+    })
   } finally {
     isAIThinking.value = false
   }

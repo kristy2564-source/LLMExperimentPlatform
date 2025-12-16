@@ -241,15 +241,6 @@ const router = createRouter({
             title: '数据分析 - 教师管理端',
           },
         },
-        {
-          path: 'export',
-          name: 'teacher-export',
-          component: () => import('@/views/TeacherExport.vue'),
-          meta: {
-            requiresTeacherAuth: true,
-            title: '数据导出 - 教师管理端',
-          },
-        },
       ],
     },
 

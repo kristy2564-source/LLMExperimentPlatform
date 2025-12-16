@@ -30,8 +30,8 @@
             <span class="icon">👤</span>
             学生基本信息
           </h2>
-          <button @click="exportStudentData" class="export-button">
-            <span>💾</span>
+          <button @click="openExportDialog" class="export-button">
+            <span class="button-icon">💾</span>
             导出数据
           </button>
         </div>
@@ -312,7 +312,7 @@
               </div>
             </div>
 
-            <!-- 🔥 详细题目列表 -->
+            <!-- 详细题目列表 -->
             <div
               v-if="studentData.questionnaireData.detailedAnswers"
               class="detailed-answers-container"
@@ -415,6 +415,61 @@
         </div>
       </div>
     </div>
+
+    <!-- 导出对话框 -->
+    <div v-if="showExportDialog" class="dialog-overlay" @click.self="showExportDialog = false">
+      <div class="export-dialog">
+        <div class="dialog-header">
+          <h3 class="dialog-title">导出学生数据</h3>
+          <button class="close-button" @click="showExportDialog = false">✕</button>
+        </div>
+
+        <div class="dialog-body">
+          <p class="dialog-description">
+            选择导出格式，将下载 <strong>{{ studentData?.sessionId }}</strong> 的完整对话数据
+          </p>
+
+          <div class="format-options">
+            <label class="format-option" :class="{ active: exportFormat === 'word' }">
+              <input type="radio" v-model="exportFormat" value="word" :disabled="isExporting" />
+              <div class="option-content">
+                <div class="option-icon">📄</div>
+                <div class="option-info">
+                  <div class="option-title">Word文档 (.docx)</div>
+                  <div class="option-desc">专业排版，包含完整格式</div>
+                </div>
+              </div>
+            </label>
+
+            <label class="format-option" :class="{ active: exportFormat === 'txt' }">
+              <input type="radio" v-model="exportFormat" value="txt" :disabled="isExporting" />
+              <div class="option-content">
+                <div class="option-icon">📝</div>
+                <div class="option-info">
+                  <div class="option-title">纯文本 (.txt)</div>
+                  <div class="option-desc">简洁格式，便于快速查看</div>
+                </div>
+              </div>
+            </label>
+          </div>
+        </div>
+
+        <div class="dialog-footer">
+          <button class="cancel-button" @click="showExportDialog = false" :disabled="isExporting">
+            取消
+          </button>
+          <button
+            class="confirm-button"
+            @click="exportStudentData(exportFormat)"
+            :disabled="isExporting"
+          >
+            <span v-if="isExporting" class="loading-spinner-small">⏳</span>
+            <span v-else class="button-icon">💾</span>
+            {{ isExporting ? '导出中...' : '确认导出' }}
+          </button>
+        </div>
+      </div>
+    </div>
   </div>
 </template>
 
@@ -470,13 +525,11 @@ interface BehaviorStats {
   }
 }
 
-// 🔥 保留原有接口（其他地方可能在用）
 interface QuestionAnswer {
   question: string
   answer: number | string | null
 }
 
-// 🔥 新增：详细问题答案接口
 interface DetailedQuestionAnswer {
   id: string
   number: number
@@ -500,7 +553,6 @@ interface QuestionnaireScores {
   }
 }
 
-// 🔥 修改：添加 detailedAnswers 字段
 interface QuestionnaireData {
   completedAt: string
   totalTime: number
@@ -511,21 +563,12 @@ interface QuestionnaireData {
     experience: QuestionAnswer[]
     feedback: string
   }
-  // 🔥 新增：详细答案（包含题目文本）
   detailedAnswers?: {
     ability: DetailedQuestionAnswer[]
     collaboration: DetailedQuestionAnswer[]
     experience: DetailedQuestionAnswer[]
   }
   feedback?: string
-}
-
-interface DetailedQuestionAnswer {
-  id: string
-  number: number
-  text: string
-  answer: number | null
-  answerText: string
 }
 
 interface BasicInfo {
@@ -557,6 +600,11 @@ const error = ref('')
 const studentData = ref<StudentData | null>(null)
 const activeTab = ref('conversations')
 const selectedStep = ref(2)
+
+// 导出相关状态
+const showExportDialog = ref(false)
+const isExporting = ref(false)
+const exportFormat = ref<'word' | 'txt'>('word')
 
 // 标签页配置
 const tabs = [
@@ -679,14 +727,69 @@ const formatTime = (timestamp: string) => {
   })
 }
 
-const exportStudentData = () => {
+// 打开导出对话框
+const openExportDialog = () => {
   if (!studentData.value) {
     console.error('没有学生数据可导出')
     return
   }
-  // TODO: 实现数据导出功能
-  console.log('导出学生数据:', studentData.value.sessionId)
-  alert('数据导出功能开发中...')
+  showExportDialog.value = true
+}
+
+// 导出学生数据
+const exportStudentData = async (format: 'word' | 'txt') => {
+  if (!studentData.value) {
+    console.error('没有学生数据可导出')
+    return
+  }
+
+  isExporting.value = true
+  const sessionId = studentData.value.sessionId
+
+  try {
+    const token = localStorage.getItem('teacherToken')
+    if (!token) {
+      router.push('/teacher/login')
+      return
+    }
+
+    console.log(`📥 开始导出 ${format} 格式数据...`)
+
+    const response = await fetch('/api/teacher/export/student-data', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: `Bearer ${token}`,
+      },
+      body: JSON.stringify({
+        sessionId,
+        format,
+      }),
+    })
+
+    if (!response.ok) {
+      throw new Error('导出失败')
+    }
+
+    // 创建下载链接
+    const blob = await response.blob()
+    const url = window.URL.createObjectURL(blob)
+    const a = document.createElement('a')
+    a.href = url
+    a.download = `student_${sessionId}_${Date.now()}.${format === 'word' ? 'docx' : 'txt'}`
+    document.body.appendChild(a)
+    a.click()
+    document.body.removeChild(a)
+    window.URL.revokeObjectURL(url)
+
+    console.log('✅ 导出成功')
+    showExportDialog.value = false
+  } catch (error) {
+    console.error('❌ 导出失败:', error)
+    alert('导出失败，请稍后重试')
+  } finally {
+    isExporting.value = false
+  }
 }
 
 onMounted(() => {
@@ -760,7 +863,7 @@ onMounted(() => {
   display: flex;
   align-items: center;
   gap: 0.5rem;
-  padding: 0.5rem 1rem;
+  padding: 0.625rem 1.25rem;
   background: #10b981;
   color: white;
   border: none;
@@ -773,6 +876,10 @@ onMounted(() => {
 .export-button:hover {
   background: #059669;
   transform: translateY(-1px);
+}
+
+.button-icon {
+  font-size: 1.1rem;
 }
 
 .info-grid {
@@ -1335,7 +1442,7 @@ onMounted(() => {
   background: #2563eb;
 }
 
-/* 🔥 详细问卷答案样式 */
+/* 详细问卷答案样式 */
 .detailed-answers-container {
   margin-top: 30px;
 }
@@ -1420,7 +1527,6 @@ onMounted(() => {
   text-align: center;
 }
 
-/* 根据分数显示不同颜色 */
 .answer-value.score-1 {
   background: #fee2e2;
   color: #991b1b;
@@ -1436,11 +1542,7 @@ onMounted(() => {
   color: #92400e;
 }
 
-.answer-value.score-4 {
-  background: #d1fae5;
-  color: #065f46;
-}
-
+.answer-value.score-4,
 .answer-value.score-5 {
   background: #d1fae5;
   color: #065f46;
@@ -1450,31 +1552,6 @@ onMounted(() => {
   color: #6b7280;
   font-size: 14px;
   font-weight: 500;
-}
-
-.feedback-section {
-  margin-top: 30px;
-  background: #f0f9ff;
-  border-radius: 12px;
-  padding: 24px;
-  border-left: 4px solid #3b82f6;
-}
-
-.subsection-title {
-  font-size: 16px;
-  font-weight: 600;
-  color: #1f2937;
-  margin-bottom: 16px;
-}
-
-.feedback-content {
-  color: #374151;
-  line-height: 1.8;
-  font-size: 15px;
-  white-space: pre-wrap;
-  background: white;
-  padding: 16px;
-  border-radius: 8px;
 }
 
 .legacy-questionnaire-notice {
@@ -1489,5 +1566,199 @@ onMounted(() => {
   margin: 0;
   color: #92400e;
   font-weight: 500;
+}
+
+/* 导出对话框样式 */
+.dialog-overlay {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background: rgba(0, 0, 0, 0.5);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 1000;
+  animation: fadeIn 0.2s;
+}
+
+.export-dialog {
+  background: white;
+  border-radius: 16px;
+  width: 90%;
+  max-width: 500px;
+  box-shadow: 0 20px 60px rgba(0, 0, 0, 0.3);
+  animation: slideUp 0.3s;
+}
+
+.dialog-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 1.5rem 2rem;
+  border-bottom: 1px solid #e5e7eb;
+}
+
+.dialog-title {
+  margin: 0;
+  font-size: 1.25rem;
+  font-weight: 700;
+  color: #1e293b;
+}
+
+.close-button {
+  background: none;
+  border: none;
+  font-size: 1.5rem;
+  color: #94a3b8;
+  cursor: pointer;
+  padding: 0;
+  width: 32px;
+  height: 32px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 6px;
+  transition: all 0.2s;
+}
+
+.close-button:hover {
+  background: #f1f5f9;
+  color: #475569;
+}
+
+.dialog-body {
+  padding: 2rem;
+}
+
+.dialog-description {
+  color: #64748b;
+  margin-bottom: 1.5rem;
+  line-height: 1.6;
+}
+
+.format-options {
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
+}
+
+.format-option {
+  border: 2px solid #e5e7eb;
+  border-radius: 12px;
+  padding: 1rem;
+  cursor: pointer;
+  transition: all 0.2s;
+  display: block;
+}
+
+.format-option:hover {
+  border-color: #cbd5e1;
+  background: #f8fafc;
+}
+
+.format-option.active {
+  border-color: #3b82f6;
+  background: #eff6ff;
+}
+
+.format-option input[type='radio'] {
+  display: none;
+}
+
+.option-content {
+  display: flex;
+  align-items: center;
+  gap: 1rem;
+}
+
+.option-icon {
+  font-size: 2rem;
+  flex-shrink: 0;
+}
+
+.option-info {
+  flex: 1;
+}
+
+.option-title {
+  font-weight: 600;
+  color: #1e293b;
+  margin-bottom: 0.25rem;
+}
+
+.option-desc {
+  font-size: 0.875rem;
+  color: #64748b;
+}
+
+.dialog-footer {
+  display: flex;
+  justify-content: flex-end;
+  gap: 1rem;
+  padding: 1.5rem 2rem;
+  border-top: 1px solid #e5e7eb;
+}
+
+.cancel-button,
+.confirm-button {
+  padding: 0.75rem 1.5rem;
+  border-radius: 8px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.2s;
+  border: none;
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.cancel-button {
+  background: #f1f5f9;
+  color: #64748b;
+}
+
+.cancel-button:hover:not(:disabled) {
+  background: #e2e8f0;
+}
+
+.confirm-button {
+  background: #3b82f6;
+  color: white;
+}
+
+.confirm-button:hover:not(:disabled) {
+  background: #2563eb;
+}
+
+.cancel-button:disabled,
+.confirm-button:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
+.loading-spinner-small {
+  animation: spin 1s linear infinite;
+}
+
+@keyframes fadeIn {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+@keyframes slideUp {
+  from {
+    transform: translateY(20px);
+    opacity: 0;
+  }
+  to {
+    transform: translateY(0);
+    opacity: 1;
+  }
 }
 </style>

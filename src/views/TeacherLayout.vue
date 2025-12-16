@@ -17,10 +17,6 @@
             <span class="nav-icon">📈</span>
             数据分析
           </router-link>
-          <router-link to="/teacher/export" class="nav-item" active-class="nav-item-active">
-            <span class="nav-icon">💾</span>
-            数据导出
-          </router-link>
         </nav>
 
         <div class="user-section">

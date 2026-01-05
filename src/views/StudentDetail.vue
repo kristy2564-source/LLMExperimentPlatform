@@ -413,6 +413,100 @@
             <p>学生尚未提交问卷</p>
           </div>
         </div>
+
+        <!-- Tab 5: 能力评估 -->
+        <div v-show="activeTab === 'evaluation'" class="tab-content">
+          <div v-if="studentData?.evaluationData" class="evaluation-section">
+            <h3 class="section-title">AI能力评估报告</h3>
+            <p class="section-desc">基于学生在实验各阶段的表现，系统生成的个性化能力评估</p>
+
+            <!-- 评估生成时间 -->
+            <div class="evaluation-meta">
+              <span class="meta-label">📅 评估生成时间：</span>
+              <span class="meta-value">{{
+                formatTime(studentData.evaluationData.generatedAt)
+              }}</span>
+            </div>
+
+            <!-- 四个维度的能力评估 -->
+            <div class="capability-assessments">
+              <h4 class="subsection-title">📈 四维能力评估</h4>
+              <div class="assessment-grid">
+                <div
+                  v-for="(assessment, index) in studentData.evaluationData.capabilityAssessments"
+                  :key="index"
+                  class="assessment-card"
+                >
+                  <div class="assessment-header">
+                    <span class="assessment-name">{{ assessment.name }}</span>
+                    <span class="assessment-level" :class="`level-${assessment.level}`">
+                      Level {{ assessment.level }}
+                    </span>
+                  </div>
+                  <div class="assessment-description">
+                    {{ assessment.description }}
+                  </div>
+                  <div class="level-indicator">
+                    <div
+                      v-for="level in 3"
+                      :key="level"
+                      class="level-dot"
+                      :class="{ active: level <= assessment.level }"
+                    ></div>
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            <!-- 个性化建议 -->
+            <div class="personalized-suggestions-section">
+              <h4 class="subsection-title">💡 个性化发展建议</h4>
+              <div class="suggestions-grid">
+                <div
+                  v-for="(suggestion, index) in studentData.evaluationData.personalizedSuggestions"
+                  :key="index"
+                  class="suggestion-card"
+                >
+                  <div class="suggestion-header">
+                    <span class="suggestion-icon">{{ getSuggestionIcon(suggestion.title) }}</span>
+                    <span class="suggestion-title">{{ suggestion.title }}</span>
+                    <span class="suggestion-level" :class="`level-${suggestion.level}`">
+                      Level {{ suggestion.level }}
+                    </span>
+                  </div>
+                  <div class="suggestion-content">
+                    {{ suggestion.content }}
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            <!-- 对话参与度概览 -->
+            <div v-if="studentData.evaluationData.conversationSummary" class="conversation-summary">
+              <h4 class="subsection-title">📊 学习参与度概览</h4>
+              <div class="summary-stats">
+                <div class="summary-stat-item">
+                  <span class="stat-label">总对话数：</span>
+                  <span class="stat-value">
+                    {{ studentData.evaluationData.conversationSummary.totalConversations || 0 }}
+                  </span>
+                </div>
+                <div class="summary-stat-item">
+                  <span class="stat-label">完成步骤：</span>
+                  <span class="stat-value"> {{ stepsCompletedCount }}/5 </span>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <!-- 无评估数据提示 -->
+          <div v-else class="empty-evaluation">
+            <div class="empty-icon">🔍</div>
+            <h4>暂无能力评估数据</h4>
+            <p>该学生尚未完成Step7的自我反思，因此没有生成能力评估报告。</p>
+            <p class="tip">学生需完成自我反思后，系统才会生成AI能力评估报告。</p>
+          </div>
+        </div>
       </div>
     </div>
 
@@ -587,7 +681,36 @@ interface StudentData {
   finalAnswers: Record<number, FinalAnswer>
   behaviorStats: BehaviorStats
   questionnaireData: QuestionnaireData | null
+  evaluationData: EvaluationData | null // 新增
   rawConversations?: ConversationMessage[]
+}
+
+// 能力评估相关接口
+interface CapabilityAssessment {
+  name: string
+  level: number
+  description: string
+}
+
+interface PersonalizedSuggestion {
+  title: string
+  level: number
+  content: string
+}
+
+interface ConversationSummary {
+  totalConversations: number
+  stepParticipation: Record<number, number>
+  stepsCompleted: Array<number | string>
+  lastActivity: string
+}
+
+interface EvaluationData {
+  generatedAt: string // 修复：Date → string
+  capabilityAssessments: CapabilityAssessment[]
+  personalizedSuggestions: PersonalizedSuggestion[]
+  conversationSummary: ConversationSummary
+  metadata: Record<string, unknown>
 }
 
 // ==================== 组件状态 ====================
@@ -612,6 +735,7 @@ const tabs = [
   { key: 'behavior', label: '行为数据', icon: '📊' },
   { key: 'answers', label: '最终答案', icon: '✍️' },
   { key: 'questionnaire', label: '问卷结果', icon: '📋' },
+  { key: 'evaluation', label: '能力评估', icon: '🎯' }, // 🔥 新增
 ]
 
 // 计算属性
@@ -620,6 +744,11 @@ const selectedStepConversations = computed(() => {
     return []
   }
   return studentData.value.conversationsByStep[selectedStep.value] || []
+})
+
+const stepsCompletedCount = computed(() => {
+  const steps = studentData.value?.evaluationData?.conversationSummary?.stepsCompleted
+  return Array.isArray(steps) ? steps.length : 0
 })
 
 // 方法
@@ -694,6 +823,17 @@ const getStepPercentage = (step: number) => {
   if (max === 0) return 0
   const count = distribution[step] ?? 0
   return (count / max) * 100
+}
+
+// 获取建议图标
+const getSuggestionIcon = (title: string) => {
+  const iconMap: Record<string, string> = {
+    信息整合: '🔗',
+    策略制定: '🎯',
+    反思能力: '💭',
+    综合能力: '🌟',
+  }
+  return iconMap[title] || '💡'
 }
 
 const getStepName = (step: number) => {
@@ -1760,5 +1900,263 @@ onMounted(() => {
     transform: translateY(0);
     opacity: 1;
   }
+}
+
+/* ==================== 能力评估样式 ==================== */
+.evaluation-section {
+  max-width: 100%;
+}
+
+.evaluation-meta {
+  background: #f8fafc;
+  padding: 1rem 1.5rem;
+  border-radius: 8px;
+  margin: 1.5rem 0;
+  border-left: 4px solid #3b82f6;
+}
+
+.meta-label {
+  font-weight: 600;
+  color: #475569;
+}
+
+.meta-value {
+  color: #64748b;
+  margin-left: 0.5rem;
+}
+
+/* 能力评估卡片 */
+.capability-assessments {
+  margin-top: 2rem;
+}
+
+.subsection-title {
+  font-size: 1.125rem;
+  font-weight: 700;
+  color: #1e293b;
+  margin: 0 0 1.5rem 0;
+  padding-bottom: 0.75rem;
+  border-bottom: 2px solid #e2e8f0;
+}
+
+.assessment-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+  gap: 1.5rem;
+}
+
+.assessment-card {
+  background: white;
+  border: 2px solid #e2e8f0;
+  border-radius: 12px;
+  padding: 1.5rem;
+  transition: all 0.3s;
+}
+
+.assessment-card:hover {
+  border-color: #3b82f6;
+  box-shadow: 0 4px 12px rgba(59, 130, 246, 0.1);
+  transform: translateY(-2px);
+}
+
+.assessment-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 1rem;
+}
+
+.assessment-name {
+  font-weight: 600;
+  color: #1e293b;
+  font-size: 1rem;
+}
+
+.assessment-level {
+  padding: 0.375rem 0.875rem;
+  border-radius: 20px;
+  font-weight: 600;
+  font-size: 0.875rem;
+}
+
+.assessment-level.level-1 {
+  background: #fee2e2;
+  color: #b91c1c;
+}
+
+.assessment-level.level-2 {
+  background: #fef3c7;
+  color: #d97706;
+}
+
+.assessment-level.level-3 {
+  background: #d1fae5;
+  color: #059669;
+}
+
+.assessment-description {
+  color: #64748b;
+  line-height: 1.6;
+  margin-bottom: 1rem;
+  font-size: 0.9375rem;
+}
+
+.level-indicator {
+  display: flex;
+  gap: 0.5rem;
+  align-items: center;
+}
+
+.level-dot {
+  width: 12px;
+  height: 12px;
+  border-radius: 50%;
+  background: #e2e8f0;
+  transition: all 0.3s;
+}
+
+.level-dot.active {
+  background: linear-gradient(135deg, #3b82f6 0%, #2563eb 100%);
+  box-shadow: 0 2px 4px rgba(59, 130, 246, 0.3);
+}
+
+/* 个性化建议 */
+.personalized-suggestions-section {
+  margin-top: 2.5rem;
+}
+
+.suggestions-grid {
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
+}
+
+.suggestion-card {
+  background: #f8fafc;
+  border: 1px solid #e2e8f0;
+  border-radius: 12px;
+  padding: 1.25rem 1.5rem;
+  transition: all 0.2s;
+}
+
+.suggestion-card:hover {
+  background: white;
+  border-color: #cbd5e1;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.05);
+}
+
+.suggestion-header {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  margin-bottom: 0.75rem;
+}
+
+.suggestion-icon {
+  font-size: 1.5rem;
+}
+
+.suggestion-title {
+  font-weight: 600;
+  color: #1e293b;
+  flex: 1;
+}
+
+.suggestion-level {
+  padding: 0.25rem 0.75rem;
+  border-radius: 16px;
+  font-weight: 600;
+  font-size: 0.75rem;
+}
+
+.suggestion-level.level-1 {
+  background: #fee2e2;
+  color: #b91c1c;
+}
+
+.suggestion-level.level-2 {
+  background: #fef3c7;
+  color: #d97706;
+}
+
+.suggestion-level.level-3 {
+  background: #d1fae5;
+  color: #059669;
+}
+
+.suggestion-content {
+  color: #475569;
+  line-height: 1.6;
+  padding-left: 2.25rem;
+}
+
+/* 对话参与度概览 */
+.conversation-summary {
+  margin-top: 2.5rem;
+  background: #f8fafc;
+  border-radius: 12px;
+  padding: 1.5rem;
+  border: 1px solid #e2e8f0;
+}
+
+.summary-stats {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+  gap: 1.5rem;
+  margin-top: 1rem;
+}
+
+.summary-stat-item {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.stat-label {
+  color: #64748b;
+  font-weight: 500;
+}
+
+.stat-value {
+  color: #1e293b;
+  font-weight: 700;
+  font-size: 1.125rem;
+}
+
+/* 空评估状态 */
+.empty-evaluation {
+  text-align: center;
+  padding: 4rem 2rem;
+  color: #64748b;
+}
+
+.empty-icon {
+  font-size: 4rem;
+  margin-bottom: 1rem;
+  opacity: 0.5;
+}
+
+.empty-evaluation h4 {
+  color: #1e293b;
+  font-size: 1.25rem;
+  margin: 1rem 0 0.5rem 0;
+}
+
+.empty-evaluation p {
+  color: #64748b;
+  margin: 0.5rem 0;
+  max-width: 500px;
+  margin-left: auto;
+  margin-right: auto;
+}
+
+.empty-evaluation .tip {
+  background: #eff6ff;
+  color: #1e40af;
+  padding: 0.75rem 1.5rem;
+  border-radius: 8px;
+  margin-top: 1.5rem;
+  display: inline-block;
+  font-weight: 500;
 }
 </style>

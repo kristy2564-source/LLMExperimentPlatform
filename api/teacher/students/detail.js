@@ -1,4 +1,4 @@
-// api/teacher/students/detail.js - 修复版:解决对话记录重复问题
+// api/teacher/students/detail.js - 修复版:添加能力评估数据
 import { MongoClient } from 'mongodb'
 
 let cachedClient = null
@@ -53,6 +53,7 @@ export default async function handler(req, res) {
     const db = client.db('llm_learning')
     const conversationCollection = db.collection('conversations')
     const questionnaireCollection = db.collection('questionnaires')
+    const evaluationCollection = db.collection('student_evaluations') // 🔥 新增：能力评估集合
 
     // 1. 获取所有对话记录
     const conversations = await conversationCollection
@@ -94,75 +95,38 @@ export default async function handler(req, res) {
       let cleanedUserInput = conv.userInput || ''
 
       if (typeof cleanedUserInput === 'string') {
-        // 检测各种求助标记
-        if (cleanedUserInput.includes('[REQUEST_EXAMPLE]')) {
-          helpType = 'example'
-          cleanedUserInput = cleanedUserInput.replace(/\[REQUEST_EXAMPLE\]/g, '').trim()
-        } else if (cleanedUserInput.includes('[CUSTOM_QUESTION]')) {
-          helpType = 'custom'
-          cleanedUserInput = cleanedUserInput.replace(/\[CUSTOM_QUESTION\]/g, '').trim()
-        } else if (cleanedUserInput.includes('[REFINE_CONTENT]')) {
-          helpType = 'refine'
-          cleanedUserInput = cleanedUserInput.replace(/\[REFINE_CONTENT\]/g, '').trim()
-        } else if (
-          cleanedUserInput.includes('[HELP_REQUEST]') ||
-          cleanedUserInput.includes('[SMART_HELP_REQUEST]')
-        ) {
-          helpType = 'custom'
-          cleanedUserInput = cleanedUserInput
-            .replace(/\[HELP_REQUEST\]|\[SMART_HELP_REQUEST\]/g, '')
-            .trim()
-        }
-
-        // 清理最终快照标记
-        if (cleanedUserInput.includes('[FINAL_SNAPSHOT]')) {
-          cleanedUserInput = cleanedUserInput.replace(/\[FINAL_SNAPSHOT\]/g, '').trim()
+        const helpMatch = cleanedUserInput.match(/\[HELP_TYPE:(\w+)\]/)
+        if (helpMatch) {
+          helpType = helpMatch[1]
+          cleanedUserInput = cleanedUserInput.replace(/\[HELP_TYPE:\w+\]\s*/, '')
         }
       }
 
-      // 🔥🔥🔥 核心修复: 使用内容作为去重key,而非时间戳
-      // 这样即使时间戳不同,但内容相同的记录也会被去重
-      const userInputKey = cleanedUserInput.trim()
-      const aiResponseKey = (conv.aiResponse || '').trim()
+      // 创建唯一键用于去重
+      const key = `${conv.step}_${conv.timestamp}_${cleanedUserInput}`
 
-      // 使用|||作为分隔符,避免与内容本身冲突
-      const contentKey = `${conv.step}|||${userInputKey}|||${aiResponseKey}`
-
-      if (!seen.has(contentKey)) {
-        seen.add(contentKey)
-
-        // 🔥 保存清理后的对话和提取的helpType
-        const cleanedConv = {
+      if (!seen.has(key)) {
+        seen.add(key)
+        uniqueConversations.push({
           ...conv,
           userInput: cleanedUserInput,
           metadata: {
             ...conv.metadata,
             helpType: helpType || conv.metadata?.helpType,
           },
-        }
-
-        uniqueConversations.push(cleanedConv)
-
-        // 调试日志
-        if (helpType) {
-          console.log(`📊 从userInput提取求助类型: "${helpType}", Step: ${conv.step}`)
-        }
-      } else {
-        // 🔥 增强的重复检测日志
-        console.log(
-          `⚠️ 去重: Step ${conv.step}, 用户输入前30字符: "${cleanedUserInput.substring(0, 30)}..."`,
-        )
+        })
       }
     }
 
-    console.log(
-      `✅ 去重完成: ${uniqueConversations.length} 条唯一对话 (去掉 ${realConversations.length - uniqueConversations.length} 条重复)`,
-    )
+    console.log(`📊 去重后: ${uniqueConversations.length} 条记录`)
 
     // 2. 获取问卷数据
     const questionnaire = await questionnaireCollection.findOne({ sessionId })
 
-    // 3. 按步骤组织对话数据（使用去重后的数据）
+    // 🔥 新增：3. 获取能力评估数据
+    const evaluation = await evaluationCollection.findOne({ sessionId })
+
+    // 4. 按步骤组织对话数据（使用去重后的数据）
     const conversationsByStep = {}
     const finalAnswers = {}
     const helpRequests = {
@@ -231,48 +195,63 @@ export default async function handler(req, res) {
       }
     })
 
-    // 4. 计算行为统计
-    const firstActivity = uniqueConversations[0].timestamp
-    const lastActivity = uniqueConversations[uniqueConversations.length - 1].timestamp
-    const timeSpent = Math.round((new Date(lastActivity) - new Date(firstActivity)) / 60000)
-
+    // 5. 计算各步骤对话分布
     const stepDistribution = {}
+    Object.keys(conversationsByStep).forEach((step) => {
+      stepDistribution[step] = conversationsByStep[step].length
+    })
+
+    // 6. 统计消息数据
     const messageStats = {
-      total: uniqueConversations.length,
-      userMessages: uniqueConversations.filter((c) => c.userInput).length,
-      aiMessages: uniqueConversations.filter((c) => c.aiResponse).length,
+      totalUserMessages: uniqueConversations.filter((c) => c.userInput).length,
+      totalAiMessages: uniqueConversations.filter((c) => c.aiResponse).length,
       avgUserMessageLength: 0,
+      avgAiMessageLength: 0,
     }
 
-    // 计算平均用户消息长度
-    const userMessageLengths = uniqueConversations
-      .filter((c) => c.userInput)
-      .map((c) => c.userInput.length)
+    let totalUserLength = 0
+    let totalAiLength = 0
 
-    if (userMessageLengths.length > 0) {
+    uniqueConversations.forEach((conv) => {
+      if (conv.userInput) {
+        totalUserLength += conv.userInput.length
+      }
+      if (conv.aiResponse) {
+        totalAiLength += conv.aiResponse.length
+      }
+    })
+
+    if (messageStats.totalUserMessages > 0) {
       messageStats.avgUserMessageLength = Math.round(
-        userMessageLengths.reduce((sum, len) => sum + len, 0) / userMessageLengths.length,
+        totalUserLength / messageStats.totalUserMessages,
       )
     }
 
-    // 统计各步骤对话数
-    for (let i = 1; i <= 7; i++) {
-      stepDistribution[i] = conversationsByStep[i]?.length || 0
+    if (messageStats.totalAiMessages > 0) {
+      messageStats.avgAiMessageLength = Math.round(totalAiLength / messageStats.totalAiMessages)
     }
 
+    // 7. 计算时间相关数据
+    const firstActivity = uniqueConversations[0]?.timestamp
+    const lastActivity = uniqueConversations[uniqueConversations.length - 1]?.timestamp
+
+    let timeSpent = 0
+    if (firstActivity && lastActivity) {
+      const start = new Date(firstActivity).getTime()
+      const end = new Date(lastActivity).getTime()
+      timeSpent = Math.round((end - start) / 60000) // 转换为分钟
+    }
+
+    // 8. 组织行为统计数据
     const behaviorStats = {
-      timeSpent, // 分钟
-      totalConversations: uniqueConversations.length, // 🔥 修复: 使用去重后的数量
+      totalConversations: uniqueConversations.length,
+      timeSpent,
+      helpRequests,
       stepDistribution,
       messageStats,
-      helpRequests,
-      activityPeriod: {
-        firstActivity,
-        lastActivity,
-      },
     }
 
-    // 5. 🔥 整理问卷数据（包含每道题的完整信息）
+    // 9. 整理问卷数据（包含每道题的完整信息）
     let questionnaireData = null
     if (questionnaire) {
       // 🔥 定义所有题目的文本
@@ -384,7 +363,22 @@ export default async function handler(req, res) {
       }
     }
 
-    // 6. 构建完整的学生详情数据
+    // 🔥 新增：10. 整理能力评估数据
+    let evaluationData = null
+    if (evaluation && evaluation.evaluationResult) {
+      evaluationData = {
+        generatedAt: evaluation.timestamp,
+        capabilityAssessments: evaluation.evaluationResult.capabilityAssessments || [],
+        personalizedSuggestions: evaluation.evaluationResult.personalizedSuggestions || [],
+        conversationSummary: evaluation.conversationSummary || {},
+        metadata: evaluation.metadata || {},
+      }
+      console.log('✅ 找到能力评估数据:', evaluationData.capabilityAssessments.length, '个维度')
+    } else {
+      console.log('⚠️ 该学生暂无能力评估数据')
+    }
+
+    // 11. 构建完整的学生详情数据
     const studentDetail = {
       sessionId,
       experimentId: uniqueConversations[0].experimentId || '未知',
@@ -394,11 +388,13 @@ export default async function handler(req, res) {
         totalSteps: 7,
         status: questionnaire ? '已完成' : '进行中',
         hasQuestionnaire: !!questionnaire,
+        hasEvaluation: !!evaluation, // 🔥 新增：是否有能力评估
       },
       conversationsByStep, // 按步骤组织的对话历史(已去重)
       finalAnswers, // 各步骤的最终答案
       behaviorStats, // 行为统计数据
       questionnaireData, // 问卷数据
+      evaluationData, // 🔥 新增：能力评估数据
       rawConversations: uniqueConversations, // 原始对话记录（已过滤EVENT和重复）
     }
 

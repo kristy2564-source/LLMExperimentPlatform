@@ -1,6 +1,17 @@
-// api/teacher/export/student-data.js - 导出学生对话数据（Word和TXT格式）
+// api/teacher/export/student-data.js - 导出学生对话数据（包含能力评估）
 import { MongoClient } from 'mongodb'
-import { Document, Packer, Paragraph, TextRun, HeadingLevel, AlignmentType } from 'docx'
+import {
+  Document,
+  Packer,
+  Paragraph,
+  TextRun,
+  HeadingLevel,
+  AlignmentType,
+  Table,
+  TableRow,
+  TableCell,
+  WidthType,
+} from 'docx'
 
 let cachedClient = null
 
@@ -15,13 +26,14 @@ async function connectToDatabase() {
 }
 
 /**
- * 获取学生的完整数据（复用detail.js的逻辑）
+ * 获取学生的完整数据（包含能力评估）
  */
 async function getStudentData(sessionId) {
   const client = await connectToDatabase()
   const db = client.db('llm_learning')
   const conversationCollection = db.collection('conversations')
   const questionnaireCollection = db.collection('questionnaires')
+  const evaluationCollection = db.collection('student_evaluations') // 🔥 新增：能力评估集合
 
   // 获取所有对话记录
   const conversations = await conversationCollection
@@ -49,7 +61,6 @@ async function getStudentData(sessionId) {
   const seen = new Set()
 
   for (const conv of realConversations) {
-    // 提取求助类型标记并清理userInput
     let helpType = null
     let cleanedUserInput = conv.userInput || ''
 
@@ -61,7 +72,6 @@ async function getStudentData(sessionId) {
       }
     }
 
-    // 创建唯一键用于去重
     const key = `${conv.step}_${conv.timestamp}_${cleanedUserInput}`
 
     if (!seen.has(key)) {
@@ -96,7 +106,6 @@ async function getStudentData(sessionId) {
       metadata: conv.metadata,
     })
 
-    // 提取最终答案
     if (conv.metadata?.isFinalSnapshot && conv.metadata?.finalAnswerContent) {
       finalAnswers[step] = {
         content: conv.metadata.finalAnswerContent,
@@ -104,7 +113,6 @@ async function getStudentData(sessionId) {
       }
     }
 
-    // Step6 特殊处理
     if (step === 6 && conv.context === 'final_solution_submission') {
       finalAnswers[step] = {
         content: conv.aiResponse,
@@ -116,18 +124,22 @@ async function getStudentData(sessionId) {
   // 获取问卷数据
   const questionnaire = await questionnaireCollection.findOne({ sessionId })
 
+  // 🔥 新增：获取能力评估数据
+  const evaluation = await evaluationCollection.findOne({ sessionId })
+
   return {
     sessionId,
     experimentId: uniqueConversations[0].experimentId || '未知',
     conversationsByStep,
     finalAnswers,
     questionnaire,
+    evaluation, // 🔥 新增
     totalConversations: uniqueConversations.length,
   }
 }
 
 /**
- * 生成TXT格式文本
+ * 生成TXT格式文本（包含能力评估）
  */
 function generateTXT(studentData) {
   const {
@@ -136,6 +148,7 @@ function generateTXT(studentData) {
     conversationsByStep,
     finalAnswers,
     questionnaire,
+    evaluation, // 🔥 新增
     totalConversations,
   } = studentData
 
@@ -212,11 +225,48 @@ function generateTXT(studentData) {
     }
   }
 
+  // 🔥 新增：添加能力评估数据
+  if (evaluation && evaluation.evaluationResult) {
+    text += '\n\n' + '='.repeat(80) + '\n'
+    text += 'AI能力评估报告\n'
+    text += '='.repeat(80) + '\n\n'
+    text += `评估生成时间: ${new Date(evaluation.timestamp).toLocaleString('zh-CN')}\n\n`
+
+    // 四维能力评估
+    if (evaluation.evaluationResult.capabilityAssessments) {
+      text += '【四维能力评估】\n\n'
+      evaluation.evaluationResult.capabilityAssessments.forEach((assessment, index) => {
+        text += `${index + 1}. ${assessment.name}\n`
+        text += `   等级: Level ${assessment.level}\n`
+        text += `   描述: ${assessment.description}\n\n`
+      })
+    }
+
+    // 个性化建议
+    if (evaluation.evaluationResult.personalizedSuggestions) {
+      text += '\n【个性化发展建议】\n\n'
+      evaluation.evaluationResult.personalizedSuggestions.forEach((suggestion, index) => {
+        text += `${index + 1}. ${suggestion.title} (Level ${suggestion.level})\n`
+        text += `   ${suggestion.content}\n\n`
+      })
+    }
+
+    // 学习参与度
+    if (evaluation.conversationSummary) {
+      text += '\n【学习参与度概览】\n\n'
+      text += `总对话数: ${evaluation.conversationSummary.totalConversations || 0}\n`
+      text += `完成步骤: ${evaluation.conversationSummary.stepsCompleted?.length || 0}/5\n`
+      if (evaluation.conversationSummary.stepsCompleted) {
+        text += `已完成: Step ${evaluation.conversationSummary.stepsCompleted.join(', Step ')}\n`
+      }
+    }
+  }
+
   return text
 }
 
 /**
- * 生成Word文档
+ * 生成Word文档（包含能力评估）
  */
 async function generateWord(studentData) {
   const {
@@ -225,6 +275,7 @@ async function generateWord(studentData) {
     conversationsByStep,
     finalAnswers,
     questionnaire,
+    evaluation, // 🔥 新增
     totalConversations,
   } = studentData
 
@@ -277,36 +328,24 @@ async function generateWord(studentData) {
         new TextRun({ text: '完成状态: ', bold: true }),
         new TextRun({ text: questionnaire ? '已完成' : '进行中' }),
       ],
-      spacing: { after: 400 },
+      spacing: { after: 300 },
     }),
   )
 
   // 对话记录
-  sections.push(
-    new Paragraph({
-      text: '对话记录',
-      heading: HeadingLevel.HEADING_1,
-      spacing: { before: 400, after: 300 },
-      pageBreakBefore: true,
-    }),
-  )
-
-  // 遍历所有步骤
   Object.keys(conversationsByStep)
     .sort((a, b) => parseInt(a) - parseInt(b))
     .forEach((step) => {
       const conversations = conversationsByStep[step]
 
-      // 步骤标题
       sections.push(
         new Paragraph({
           text: stepNames[step] || `Step ${step}`,
           heading: HeadingLevel.HEADING_2,
-          spacing: { before: 400, after: 300 },
+          spacing: { before: 300, after: 200 },
         }),
       )
 
-      // 对话内容
       conversations.forEach((conv, index) => {
         sections.push(
           new Paragraph({
@@ -362,7 +401,6 @@ async function generateWord(studentData) {
         )
       })
 
-      // 最终答案
       if (finalAnswers[step]) {
         sections.push(
           new Paragraph({
@@ -391,9 +429,9 @@ async function generateWord(studentData) {
   if (questionnaire && questionnaire.feedback_open) {
     sections.push(
       new Paragraph({
-        text: '问卷调查结果',
-        heading: HeadingLevel.HEADING_1,
-        spacing: { before: 400, after: 300 },
+        text: '问卷反馈',
+        heading: HeadingLevel.HEADING_2,
+        spacing: { before: 300, after: 200 },
         pageBreakBefore: true,
       }),
       new Paragraph({
@@ -412,6 +450,146 @@ async function generateWord(studentData) {
         spacing: { after: 200 },
       }),
     )
+  }
+
+  // 🔥 新增：能力评估报告
+  if (evaluation && evaluation.evaluationResult) {
+    sections.push(
+      new Paragraph({
+        text: 'AI能力评估报告',
+        heading: HeadingLevel.HEADING_1,
+        spacing: { before: 400, after: 300 },
+        pageBreakBefore: true,
+      }),
+      new Paragraph({
+        children: [
+          new TextRun({ text: '评估生成时间: ', bold: true }),
+          new TextRun({ text: new Date(evaluation.timestamp).toLocaleString('zh-CN') }),
+        ],
+        spacing: { after: 400 },
+      }),
+    )
+
+    // 四维能力评估表格
+    if (evaluation.evaluationResult.capabilityAssessments) {
+      sections.push(
+        new Paragraph({
+          text: '四维能力评估',
+          heading: HeadingLevel.HEADING_2,
+          spacing: { before: 300, after: 200 },
+        }),
+      )
+
+      const assessmentTable = new Table({
+        rows: [
+          // 表头
+          new TableRow({
+            children: [
+              new TableCell({
+                children: [new Paragraph({ text: '能力维度', bold: true })],
+                width: { size: 30, type: WidthType.PERCENTAGE },
+              }),
+              new TableCell({
+                children: [new Paragraph({ text: '等级', bold: true })],
+                width: { size: 15, type: WidthType.PERCENTAGE },
+              }),
+              new TableCell({
+                children: [new Paragraph({ text: '评估描述', bold: true })],
+                width: { size: 55, type: WidthType.PERCENTAGE },
+              }),
+            ],
+          }),
+          // 数据行
+          ...evaluation.evaluationResult.capabilityAssessments.map(
+            (assessment) =>
+              new TableRow({
+                children: [
+                  new TableCell({
+                    children: [new Paragraph(assessment.name)],
+                  }),
+                  new TableCell({
+                    children: [new Paragraph(`Level ${assessment.level}`)],
+                  }),
+                  new TableCell({
+                    children: [new Paragraph(assessment.description)],
+                  }),
+                ],
+              }),
+          ),
+        ],
+        width: { size: 100, type: WidthType.PERCENTAGE },
+      })
+
+      sections.push(new Paragraph({ children: [assessmentTable], spacing: { after: 400 } }))
+    }
+
+    // 个性化建议
+    if (evaluation.evaluationResult.personalizedSuggestions) {
+      sections.push(
+        new Paragraph({
+          text: '个性化发展建议',
+          heading: HeadingLevel.HEADING_2,
+          spacing: { before: 300, after: 200 },
+        }),
+      )
+
+      evaluation.evaluationResult.personalizedSuggestions.forEach((suggestion, index) => {
+        sections.push(
+          new Paragraph({
+            children: [
+              new TextRun({ text: `${index + 1}. ${suggestion.title}`, bold: true }),
+              new TextRun({ text: ` (Level ${suggestion.level})` }),
+            ],
+            spacing: { before: 150, after: 100 },
+          }),
+          new Paragraph({
+            text: suggestion.content,
+            spacing: { after: 200 },
+          }),
+        )
+      })
+    }
+
+    // 学习参与度
+    if (evaluation.conversationSummary) {
+      sections.push(
+        new Paragraph({
+          text: '学习参与度概览',
+          heading: HeadingLevel.HEADING_2,
+          spacing: { before: 300, after: 200 },
+        }),
+        new Paragraph({
+          children: [
+            new TextRun({ text: '总对话数: ', bold: true }),
+            new TextRun({ text: String(evaluation.conversationSummary.totalConversations || 0) }),
+          ],
+          spacing: { after: 100 },
+        }),
+        new Paragraph({
+          children: [
+            new TextRun({ text: '完成步骤: ', bold: true }),
+            new TextRun({
+              text: `${evaluation.conversationSummary.stepsCompleted?.length || 0}/5`,
+            }),
+          ],
+          spacing: { after: 100 },
+        }),
+      )
+
+      if (evaluation.conversationSummary.stepsCompleted) {
+        sections.push(
+          new Paragraph({
+            children: [
+              new TextRun({ text: '已完成步骤: ', bold: true }),
+              new TextRun({
+                text: `Step ${evaluation.conversationSummary.stepsCompleted.join(', Step ')}`,
+              }),
+            ],
+            spacing: { after: 200 },
+          }),
+        )
+      }
+    }
   }
 
   const doc = new Document({
@@ -465,7 +643,7 @@ export default async function handler(req, res) {
 
     console.log(`📥 导出学生数据: ${sessionId}, 格式: ${format}`)
 
-    // 获取学生数据
+    // 获取学生数据（包含能力评估）
     const studentData = await getStudentData(sessionId)
 
     if (!studentData) {
@@ -493,7 +671,7 @@ export default async function handler(req, res) {
       res.send(text)
     }
 
-    console.log('✅ 导出成功')
+    console.log('✅ 导出成功（包含能力评估）')
   } catch (error) {
     console.error('❌ 导出失败:', error)
     res.status(500).json({

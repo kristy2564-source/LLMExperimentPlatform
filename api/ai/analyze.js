@@ -1042,6 +1042,9 @@ function buildUserPrompt(
   conversationHistory = [],
   context = {},
 ) {
+  // ✅ 添加这两行
+  const stepNum = step
+  const stageNum = stage
   const normalizedHistory = normalizeConversationHistory(conversationHistory)
 
   // 检测各种帮助请求类型
@@ -1068,6 +1071,49 @@ function buildUserPrompt(
   }
 
   const recentContext = getRecentConversationContext(normalizedHistory, step, stage)
+
+  if (stepNum === 2) {
+    // 🔥 新增：Stage1 因素选择反馈
+    if (stageNum === 1 && context.rankedFactorsData) {
+      return `学生提交的因素选择：
+
+${userAnswer}
+
+请给予简短肯定（50字以内），然后引导进入控制设计阶段。`
+    }
+
+    // 🔥 新增：Stage2 使用 Stage1 因素
+    if (stageNum === 2 && context.stage1Factors) {
+      return `学生基于识别的因素提出的控制策略：
+
+${userAnswer}
+
+${
+  conversationHistory.length > 0
+    ? `之前的讨论：\n${conversationHistory
+        .slice(-3)
+        .map((m) => `${m.type === 'user' ? '学生' : 'AI'}：${m.content.substring(0, 100)}`)
+        .join('\n')}\n`
+    : ''
+}
+
+请针对学生的回答给予反馈，引导其完善控制逻辑。`
+    }
+
+    // 原有通用处理
+    return `学生回答：${userAnswer}
+
+${
+  conversationHistory.length > 0
+    ? `对话历史：\n${conversationHistory
+        .slice(-3)
+        .map((m) => `${m.type === 'user' ? '学生' : 'AI'}：${m.content}`)
+        .join('\n')}`
+    : ''
+}
+
+请根据当前阶段给予指导。`
+  }
 
   // 检查是否需要阶段推进提示
   if (shouldCompleteStage(step, stage, normalizedHistory, userAnswer)) {
@@ -1346,6 +1392,9 @@ function extractDiscussedTopics(recentQuestions) {
 }
 
 function buildEnhancedSystemPrompt(step, stage, userAnswer, context) {
+  // ✅ 添加这两行，解决变量未定义问题
+  const stepNum = step
+  const stageNum = stage
   let systemPrompt = getSocraticSystemPrompt(step, stage)
 
   systemPrompt += `\n\n【教室场景】40人/60㎡，夏季，外温22-35℃，空调3.2kW`
@@ -1363,6 +1412,78 @@ function buildEnhancedSystemPrompt(step, stage, userAnswer, context) {
 
   if (context.needsContinuity) {
     systemPrompt += `\n\n【连贯性要求】必须基于学生的具体回答内容进行自然承接，避免突兀的话题跳转`
+  }
+
+  if (step === 2) {
+    // 🔥 修改：根据是否有 rankedFactorsData 判断
+    if (stage === 1 && context.rankedFactorsData) {
+      // Stage1 - 因素选择反馈（简短版本）
+      return `你是教室通风节能系统设计的指导老师。学生刚刚完成了影响因素的识别和排序。
+
+学生选择的关键因素（前3个）：
+${context.rankedFactorsData.keyFactors.map((f, i) => `${i + 1}. ${f.text}（${f.description}）`).join('\n')}
+
+${context.rankedFactorsData.secondaryFactors?.length > 0 ? `次要因素：\n${context.rankedFactorsData.secondaryFactors.join('、')}` : ''}
+
+${context.rankedFactorsData.customFactors ? `学生补充的因素：${context.rankedFactorsData.customFactors}` : ''}
+
+你的任务：
+1. 简短肯定学生的因素选择（30-50字）
+2. 指出选择的合理性（选择1-2个因素点评）
+3. 引导进入下一阶段："现在我们来设计控制策略，考虑这些因素如何影响窗户和空调的开关决策"
+
+**注意**：
+- 回复控制在100字以内
+- 不要展开详细分析，快速过渡到 Stage2
+- 语气鼓励、积极`
+    }
+
+    if (stage === 2 && context.stage1Factors) {
+      // Stage2 - 控制设计（使用 Stage1 的因素）
+      return `你是教室通风节能系统设计的指导老师。学生已完成因素识别，现在需要设计控制策略。
+
+学生在阶段一识别的关键因素：
+${context.stage1Factors.keyFactors.map((f, i) => `${i + 1}. ${f.text}（${f.description}）`).join('\n')}
+
+你的任务：
+引导学生基于这些因素设计决策规则：
+1. 什么情况下开窗？什么情况下关窗？
+2. 什么情况下开空调？什么情况下关空调？
+3. 如何平衡舒适度和节能？
+
+指导原则：
+- 启发学生思考因素之间的优先级（例如：CO2浓度 vs 温度）
+- 引导设计具体的阈值（例如：温度超过28℃）
+- 鼓励考虑多种场景（例如：夏季炎热 vs 冬季寒冷）
+
+注意：
+- 不要直接给出完整方案
+- 通过问题引导学生深入思考
+- 鼓励学生提出具体的数值和条件`
+    }
+
+    // 🔥 原有的通用 Stage1/Stage2 提示词作为兜底
+    if (stage === 1) {
+      return `你是教室通风节能系统设计的指导老师。当前阶段：因素识别。
+
+引导学生识别影响教室舒适度和能耗的关键因素，包括：
+- 环境参数（温度、湿度、CO2浓度、风速等）
+- 人为因素（学生人数、活动强度、课程时长等）
+- 设备状态（空调、窗户、风扇等）
+
+给予建设性反馈，但不要直接列出所有因素。`
+    }
+
+    if (stage === 2) {
+      return `你是教室通风节能系统设计的指导老师。当前阶段：控制设计。
+
+引导学生基于识别的因素设计自动控制规则：
+- 触发条件（什么情况下采取行动）
+- 执行动作（开窗/关窗、开空调/关空调）
+- 优先级处理（多个因素冲突时如何决策）
+
+鼓励学生思考具体的阈值和逻辑。`
+    }
   }
 
   return systemPrompt
@@ -1419,6 +1540,7 @@ export default async function handler(req, res) {
       sessionId,
       followUpContext,
       conversationHistory = [],
+      rankedFactorsData, // 🔥 新增：接收因素数据
     } = req.body
 
     const actualUserInput = userAnswer || userInput || answer
@@ -1439,6 +1561,17 @@ export default async function handler(req, res) {
     }
 
     console.log(`🎯 处理 Step${stepNum}${stageNum ? `-Stage${stageNum}` : ''}`)
+
+    // 🔥 新增：如果是 Step2-Stage1 的因素提交，记录日志
+    if (stepNum === 2 && stageNum === 1 && rankedFactorsData) {
+      console.log('📊 Step2-Stage1 收到因素选择数据:', {
+        totalCount: rankedFactorsData.totalCount,
+        keyFactorsCount: rankedFactorsData.keyFactors?.length || 0,
+        secondaryFactorsCount: rankedFactorsData.secondaryFactors?.length || 0,
+        hasCustomFactors: !!rankedFactorsData.customFactors,
+      })
+    }
+
     console.log(
       `👤 用户回答: "${actualUserInput.substring(0, 50)}${actualUserInput.length > 50 ? '...' : ''}"`,
     )
@@ -1447,11 +1580,17 @@ export default async function handler(req, res) {
     const normalizedHistory = normalizeConversationHistory(conversationHistory)
     const recentQuestions = context.recentQuestions || ''
 
+    // 🔥 新增：构建增强上下文
     const enhancedContext = {
       ...context,
       needsContinuity: followUpContext?.needsContinuity || true,
       previousUserAnswers: followUpContext?.previousUserAnswers || [],
       stageProgress: followUpContext?.stageProgress || {},
+      // 🔥 添加因素数据
+      rankedFactorsData: rankedFactorsData || null,
+      // 🔥 如果是 Stage2，提取 Stage1 的因素数据
+      stage1Factors:
+        stepNum === 2 && stageNum === 2 ? extractStage1Factors(normalizedHistory) : null,
     }
 
     const systemPrompt = buildEnhancedSystemPrompt(
@@ -1743,4 +1882,78 @@ async function saveConversationToDatabase({
 
   const result = await collection.insertOne(document)
   return result.insertedId
+}
+
+/**
+ * 从对话历史中提取 Stage1 的因素数据
+ * @param {Array} conversationHistory - 对话历史
+ * @returns {Object|null} - 因素数据或null
+ */
+function extractStage1Factors(conversationHistory) {
+  // 查找 Stage1 中包含因素选择的用户消息
+  const stage1Messages = conversationHistory.filter(
+    (m) => m.step === 2 && m.stage === 1 && m.type === 'user',
+  )
+
+  // 查找包含"【我认为最重要的3个关键因素是】"的消息
+  const factorMessage = stage1Messages.find((m) =>
+    m.content.includes('【我认为最重要的3个关键因素是】'),
+  )
+
+  if (!factorMessage) {
+    console.log('⚠️ Stage2 未找到 Stage1 的因素数据')
+    return null
+  }
+
+  // 解析因素数据
+  try {
+    const content = factorMessage.content
+    const keyFactorsMatch = content.match(/【我认为最重要的3个关键因素是】\n([\s\S]*?)(?:\n\n|$)/)
+    const secondaryFactorsMatch = content.match(/【其他需要考虑的因素】\n([\s\S]*?)(?:\n\n|$)/)
+    const customFactorsMatch = content.match(/【我补充的因素】\n([\s\S]*)$/)
+
+    const keyFactors = []
+    if (keyFactorsMatch) {
+      const lines = keyFactorsMatch[1].trim().split('\n')
+      lines.forEach((line) => {
+        // 解析格式：1. 室外温度变化（早晨22℃→下午35℃）
+        const match = line.match(/^\d+\.\s*(.+?)（(.+?)）/)
+        if (match) {
+          keyFactors.push({
+            text: match[1],
+            description: match[2],
+          })
+        }
+      })
+    }
+
+    const secondaryFactors = []
+    if (secondaryFactorsMatch) {
+      const lines = secondaryFactorsMatch[1].trim().split('\n')
+      lines.forEach((line) => {
+        const match = line.match(/^\d+\.\s*(.+)$/)
+        if (match) {
+          secondaryFactors.push(match[1])
+        }
+      })
+    }
+
+    const customFactors = customFactorsMatch ? customFactorsMatch[1].trim() : null
+
+    console.log('✅ 成功提取 Stage1 因素:', {
+      keyFactorsCount: keyFactors.length,
+      secondaryFactorsCount: secondaryFactors.length,
+      hasCustomFactors: !!customFactors,
+    })
+
+    return {
+      keyFactors,
+      secondaryFactors,
+      customFactors,
+      totalCount: keyFactors.length + secondaryFactors.length,
+    }
+  } catch (error) {
+    console.error('❌ 解析 Stage1 因素失败:', error)
+    return null
+  }
 }

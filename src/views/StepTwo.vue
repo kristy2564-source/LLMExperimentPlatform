@@ -196,8 +196,9 @@
       </div>
 
       <!-- 对话消息区域 -->
+      <!-- 🔥 核心改动：所有对话内容放在 chat-messages 内 -->
       <div class="chat-messages">
-        <!-- 🔥 初始 AI 引导消息 - 根据当前阶段显示 -->
+        <!-- 初始 AI 引导消息 -->
         <div class="message ai" v-if="showPrompt">
           <div class="message-avatar">🤖</div>
           <div class="message-content">
@@ -208,346 +209,559 @@
             </div>
           </div>
         </div>
-        <!-- 动态对话消息 - 过滤掉system类型 -->
-        <div
-          v-for="message in messages.filter((m) => m.type !== 'system')"
-          :key="message.id"
-          :class="['message', message.type]"
-        >
-          <div class="message-avatar">
-            {{ message.type === 'ai' ? '🤖' : '👤' }}
-          </div>
-          <div class="message-content">
-            <div class="message-text" v-html="message.content"></div>
-            <div class="message-time">
-              {{ formatTime(message.timestamp) }}
-            </div>
-          </div>
-        </div>
 
-        <!-- AI思考加载动画 -->
-        <div v-if="isGenerating" class="message ai loading-message">
-          <div class="message-avatar">🤖</div>
-          <div class="message-content loading-content">
-            <div class="loading-animation">
-              <div class="loading-dots">
-                <span class="dot"></span>
-                <span class="dot"></span>
-                <span class="dot"></span>
-              </div>
-              <div class="loading-text">AI正在分析您的回答，预计需要15-30秒...</div>
-              <div class="loading-progress">
-                <div class="progress-bar">
-                  <div class="progress-fill"></div>
+        <!-- 🔥 新增：因素选择面板（阶段1且未提交时显示） -->
+        <div v-if="currentStage === 1 && !stage1SelectionSubmitted" class="factor-selection-panel">
+          <!-- 🔥 根据步骤显示不同内容 -->
+          <div v-if="selectionStep === 'select'" class="selection-content">
+            <div class="selection-header">
+              <div class="header-icon">🔍</div>
+              <h3>步骤1：选择影响因素</h3>
+              <p class="selection-hint">
+                请勾选你认为重要的因素（最少3个，最多{{ MAX_SELECTION }}个）
+              </p>
+            </div>
+
+            <div class="factor-categories">
+              <!-- 环境因素 -->
+              <div class="factor-category">
+                <h4 class="category-title">
+                  <span class="category-icon">🌤️</span>
+                  环境因素
+                </h4>
+                <div class="factor-options">
+                  <label
+                    v-for="factor in factorOptions.environment"
+                    :key="factor.id"
+                    class="factor-option"
+                    :class="{ selected: factor.selected }"
+                  >
+                    <input type="checkbox" v-model="factor.selected" class="factor-checkbox" />
+                    <div class="factor-content">
+                      <span class="factor-label">{{ factor.label }}</span>
+                      <span class="factor-desc" v-if="factor.description">{{
+                        factor.description
+                      }}</span>
+                    </div>
+                    <span class="checkmark">✓</span>
+                  </label>
                 </div>
-                <div class="progress-steps">
-                  <span class="step active">📝 理解问题</span>
-                  <span class="step" :class="{ active: loadingStep >= 2 }">🔍 分析数据</span>
-                  <span class="step" :class="{ active: loadingStep >= 3 }">💡 生成建议</span>
+              </div>
+
+              <!-- 人员因素 -->
+              <div class="factor-category">
+                <h4 class="category-title">
+                  <span class="category-icon">👥</span>
+                  人员因素
+                </h4>
+                <div class="factor-options">
+                  <label
+                    v-for="factor in factorOptions.people"
+                    :key="factor.id"
+                    class="factor-option"
+                    :class="{ selected: factor.selected }"
+                  >
+                    <input type="checkbox" v-model="factor.selected" class="factor-checkbox" />
+                    <div class="factor-content">
+                      <span class="factor-label">{{ factor.label }}</span>
+                      <span class="factor-desc" v-if="factor.description">{{
+                        factor.description
+                      }}</span>
+                    </div>
+                    <span class="checkmark">✓</span>
+                  </label>
+                </div>
+              </div>
+
+              <!-- 设备因素 -->
+              <div class="factor-category">
+                <h4 class="category-title">
+                  <span class="category-icon">⚙️</span>
+                  设备因素
+                </h4>
+                <div class="factor-options">
+                  <label
+                    v-for="factor in factorOptions.equipment"
+                    :key="factor.id"
+                    class="factor-option"
+                    :class="{ selected: factor.selected }"
+                  >
+                    <input type="checkbox" v-model="factor.selected" class="factor-checkbox" />
+                    <div class="factor-content">
+                      <span class="factor-label">{{ factor.label }}</span>
+                      <span class="factor-desc" v-if="factor.description">{{
+                        factor.description
+                      }}</span>
+                    </div>
+                    <span class="checkmark">✓</span>
+                  </label>
+                </div>
+              </div>
+
+              <!-- 其他因素 -->
+              <div class="factor-category">
+                <h4 class="category-title">
+                  <span class="category-icon">💡</span>
+                  其他因素
+                </h4>
+                <div class="factor-options">
+                  <label
+                    v-for="factor in factorOptions.others"
+                    :key="factor.id"
+                    class="factor-option"
+                    :class="{ selected: factor.selected }"
+                  >
+                    <input type="checkbox" v-model="factor.selected" class="factor-checkbox" />
+                    <div class="factor-content">
+                      <span class="factor-label">{{ factor.label }}</span>
+                      <span class="factor-desc" v-if="factor.description">{{
+                        factor.description
+                      }}</span>
+                    </div>
+                    <span class="checkmark">✓</span>
+                  </label>
                 </div>
               </div>
             </div>
-          </div>
-        </div>
-      </div>
-    </div>
 
-    <!-- 底部用户输入区域 -->
-    <div class="input-section" :class="{ 'input-visible': showAnswerArea }">
-      <div class="input-container">
-        <textarea
-          v-model="userAnswer"
-          :placeholder="currentStagePlaceholder"
-          class="user-input"
-          :disabled="isStepLocked || isGenerating || isConversationLimitReached"
-          @input="handleInput"
-          rows="3"
-        ></textarea>
-        <div class="input-toolbar">
-          <button
-            class="help-button"
-            @click="requestHelp"
-            :disabled="isStepLocked || isGenerating || isConversationLimitReached || !canUseHelp"
-            :title="isStepLocked ? '步骤已锁定' : getHelpButtonTitle"
-          >
-            <span class="help-icon">💡</span>
-            <span class="help-text">我想提问</span>
-            <span class="help-counter"> {{ remainingCycles }}/{{ helpSystem.maxCycles }} </span>
-          </button>
-          <div class="action-buttons">
-            <button
-              v-if="!isConversationLimitReached"
-              class="submit-button"
-              @click="submitAnswer"
-              :disabled="isStepLocked || !canSubmit || isGenerating"
-            >
-              <span v-if="isGenerating">
-                <span class="button-loading-dots">
-                  <span class="button-dot"></span>
-                  <span class="button-dot"></span>
-                  <span class="button-dot"></span>
+            <!-- 自定义补充区域 -->
+            <div class="custom-factors-section">
+              <h4 class="custom-title">
+                <span class="custom-icon">💭</span>
+                你还想到其他因素吗？（可选）
+              </h4>
+              <textarea
+                v-model="customFactorInput"
+                class="custom-input"
+                placeholder="例如：天气预报、课间开窗习惯、学生座位调整等..."
+                rows="3"
+                maxlength="200"
+              ></textarea>
+              <div class="custom-char-count">{{ customFactorInput.length }}/200</div>
+            </div>
+
+            <!-- 选择统计和按钮 - 修改 -->
+            <div class="selection-summary">
+              <div class="summary-stat">
+                <span class="stat-icon">📊</span>
+                <span class="stat-text">
+                  已选择: <strong class="stat-number">{{ selectedCount }}</strong> /
+                  {{ MAX_SELECTION }} 个
                 </span>
-                分析中...
-              </span>
-              <span v-else>{{ currentSubmitButtonText }}</span>
-            </button>
-            <!-- 关键修改：当第二阶段完成或对话达到限制时显示下一步按钮 -->
-            <button
-              class="next-button"
-              @click="handleNextStep"
-              v-if="allStagesCompleted || isConversationLimitReached"
-            >
-              下一步
-            </button>
-          </div>
-        </div>
-      </div>
-    </div>
-
-    <!-- 🔥 帮助弹窗 -->
-    <div v-if="showHelpDialog" class="help-dialog-overlay" @click="closeHelpDialog">
-      <div class="help-dialog" @click.stop>
-        <div class="help-dialog-header">
-          <div class="help-dialog-icon">💬</div>
-          <h3>选择帮助方式</h3>
-          <button class="close-button" @click="closeHelpDialog">✕</button>
-        </div>
-
-        <div class="help-dialog-content">
-          <p class="help-dialog-description">请选择你需要的帮助类型：</p>
-
-          <!-- 帮助选项 -->
-          <div class="help-options">
-            <!-- 选项1：完善内容 -->
-            <button
-              class="help-option"
-              :class="{
-                active: helpMode === 'refine',
-                disabled: !availableHelpModes.refine,
-              }"
-              @click="selectHelpMode('refine')"
-              :disabled="!userAnswer.trim() || !availableHelpModes.refine"
-            >
-              <div class="option-icon">🗣</div>
-              <div class="option-content">
-                <div class="option-title">
-                  帮我完善内容
-                  <span v-if="!availableHelpModes.refine" class="used-badge">已使用</span>
-                </div>
-                <div class="option-description">
-                  "我好像写得不太清楚，帮我完善一下吧。"（请先在输入框中写下答案，再点击该按钮）
-                </div>
+                <span v-if="selectedCount < 3" class="warning-text">（至少需要3个）</span>
+                <span v-else-if="selectedCount > MAX_SELECTION" class="error-text"
+                  >（超过上限！）</span
+                >
+                <span v-else class="success-text">✓ 满足要求</span>
               </div>
-              <div class="option-arrow">→</div>
-            </button>
-
-            <!-- 选项2：给示例 -->
-            <button
-              class="help-option"
-              :class="{
-                active: helpMode === 'example',
-                disabled: !availableHelpModes.example,
-              }"
-              @click="selectHelpMode('example')"
-              :disabled="!availableHelpModes.example"
-            >
-              <div class="option-icon">💡</div>
-              <div class="option-content">
-                <div class="option-title">
-                  给我看看例子
-                  <span v-if="!availableHelpModes.example" class="used-badge">已使用</span>
-                </div>
-                <div class="option-description">"我有点不确定怎么做，能给个参考例子吗？"</div>
+              <div class="summary-actions">
+                <button
+                  class="next-step-button"
+                  :class="{ disabled: !canProceedToRank }"
+                  :disabled="!canProceedToRank"
+                  @click="goToRankingStep"
+                >
+                  <span class="button-icon">➡️</span>
+                  <span>继续排序</span>
+                </button>
               </div>
-              <div class="option-arrow">→</div>
-            </button>
-
-            <!-- 选项3：自定义提问 -->
-            <button
-              class="help-option"
-              :class="{
-                active: helpMode === 'custom',
-                disabled: !availableHelpModes.custom,
-              }"
-              @click="selectHelpMode('custom')"
-              :disabled="!availableHelpModes.custom"
-            >
-              <div class="option-icon">✍️</div>
-              <div class="option-content">
-                <div class="option-title">
-                  我想自己提问
-                  <span v-if="!availableHelpModes.custom" class="used-badge">已使用</span>
-                </div>
-                <div class="option-description">"我有具体的问题想问。"</div>
-              </div>
-              <div class="option-arrow">→</div>
-            </button>
+            </div>
           </div>
 
-          <!-- 🔥 周期提示 -->
-          <div class="help-cycle-info">
-            <span class="cycle-icon">🔄</span>
-            <span>剩余帮助次数：{{ helpSystem.maxCycles - helpSystem.totalCycles }} 次</span>
-            <span v-if="helpSystem.isInCycle" class="cycle-tip">
-              （当前周期已使用
-              {{ Object.values(helpSystem.currentCycleUsed).filter(Boolean).length }}/3）
-            </span>
-          </div>
+          <!-- 🔥 新增：排序界面 -->
+          <div v-else-if="selectionStep === 'rank'" class="ranking-content">
+            <div class="ranking-header">
+              <div class="header-icon">📊</div>
+              <h3>步骤2：重要性排序</h3>
+              <p class="ranking-hint">请对选中的因素按重要性排序（越重要越靠前）</p>
+            </div>
 
-          <!-- 自定义问题输入框 -->
-          <div v-if="helpMode === 'custom'" class="custom-question-section">
-            <textarea
-              v-model="customQuestion"
-              placeholder="请输入你的问题..."
-              class="custom-question-input"
-              rows="3"
-              autofocus
-            ></textarea>
-            <div class="custom-question-actions">
-              <button class="cancel-custom-button" @click="helpMode = null">取消</button>
-              <button
-                class="submit-custom-button"
-                @click="submitCustomQuestion"
-                :disabled="!customQuestion.trim()"
-              >
-                提交问题
+            <div class="ranking-list">
+              <div v-for="(factor, index) in rankedFactors" :key="factor.id" class="ranking-item">
+                <div class="rank-number">{{ index + 1 }}</div>
+                <div class="factor-info">
+                  <div class="factor-label">{{ factor.label }}</div>
+                  <div class="factor-desc">{{ factor.description }}</div>
+                </div>
+                <div class="rank-controls">
+                  <button class="rank-btn up" :disabled="index === 0" @click="moveUp(index)">
+                    ↑
+                  </button>
+                  <button
+                    class="rank-btn down"
+                    :disabled="index === rankedFactors.length - 1"
+                    @click="moveDown(index)"
+                  >
+                    ↓
+                  </button>
+                </div>
+              </div>
+            </div>
+
+            <!-- 自定义因素显示（如果有） -->
+            <div v-if="customFactorInput.trim()" class="custom-factor-display">
+              <h4>💭 你补充的因素：</h4>
+              <p>{{ customFactorInput }}</p>
+            </div>
+
+            <div class="ranking-actions">
+              <button class="back-button" @click="backToSelection">
+                <span>⬅️</span>
+                <span>重新选择</span>
+              </button>
+              <button class="confirm-ranking-button" @click="confirmFactorSelection">
+                <span class="button-icon">✓</span>
+                <span>确认提交</span>
               </button>
             </div>
-          </div>
 
-          <!-- 完善内容提示 -->
-          <div v-if="helpMode === 'refine' && !userAnswer.trim()" class="help-tip">
-            <span class="tip-icon">💡</span>
-            <span>请先在下方输入框中写一些内容，然后我可以帮你完善。</span>
+            <div class="ranking-tip">
+              <span class="tip-icon">💡</span>
+              <span>提示：前3个因素将被视为"关键因素"，其他为"次要因素"</span>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- 动态对话消息 - 过滤掉system类型 -->
+      <div
+        v-for="message in messages.filter((m) => m.type !== 'system')"
+        :key="message.id"
+        :class="['message', message.type]"
+      >
+        <div class="message-avatar">
+          {{ message.type === 'ai' ? '🤖' : '👤' }}
+        </div>
+        <div class="message-content">
+          <div class="message-text" v-html="message.content"></div>
+          <div class="message-time">
+            {{ formatTime(message.timestamp) }}
+          </div>
+        </div>
+      </div>
+
+      <!-- AI思考加载动画 -->
+      <div v-if="isGenerating" class="message ai loading-message">
+        <div class="message-avatar">🤖</div>
+        <div class="message-content loading-content">
+          <div class="loading-animation">
+            <div class="loading-dots">
+              <span class="dot"></span>
+              <span class="dot"></span>
+              <span class="dot"></span>
+            </div>
+            <div class="loading-text">AI正在分析您的回答，预计需要15-30秒...</div>
+            <div class="loading-progress">
+              <div class="progress-bar">
+                <div class="progress-fill"></div>
+              </div>
+              <div class="progress-steps">
+                <span class="step active">📝 理解问题</span>
+                <span class="step" :class="{ active: loadingStep >= 2 }">🔍 分析数据</span>
+                <span class="step" :class="{ active: loadingStep >= 3 }">💡 生成建议</span>
+              </div>
+            </div>
           </div>
         </div>
       </div>
     </div>
+  </div>
 
-    <!-- 🔥 帮助次数用尽提示 -->
-    <div v-if="showHelpLimitDialog" class="help-dialog-overlay" @click="closeHelpLimitDialog">
-      <div class="help-limit-dialog" @click.stop>
-        <div class="limit-dialog-icon">⚠️</div>
-        <h3>帮助次数已用完</h3>
-        <p>您已使用完所有的帮助次数（{{ helpSystem.maxCycles }} 次）。</p>
-        <p class="limit-tip">请继续独立完成剩余的任务，或点击"提交回答"按钮提交您的答案。</p>
-        <button class="limit-confirm-button" @click="closeHelpLimitDialog">知道了</button>
-      </div>
-    </div>
-
-    <!-- 🔥 周期内帮助已用尽提示 -->
-    <div v-if="showCycleLimitDialog" class="help-dialog-overlay" @click="closeCycleLimitDialog">
-      <div class="help-limit-dialog" @click.stop>
-        <div class="limit-dialog-icon">🔄</div>
-        <h3>当前周期的帮助已全部使用</h3>
-        <p>您已使用完当前周期的3种帮助方式。</p>
-        <p class="limit-tip">
-          请先提交您的答案，提交后将开启新的帮助周期。
-          <br />
-          剩余帮助周期：<strong>{{ helpSystem.maxCycles - helpSystem.totalCycles }}</strong> 次
-        </p>
-        <button class="limit-confirm-button" @click="closeCycleLimitDialog">知道了</button>
-      </div>
-    </div>
-
-    <!-- 🔥 修改：确认弹窗 - 统一风格版本 -->
-    <div v-if="showConfirmDialog" class="confirm-dialog-overlay" @click="closeConfirmDialog">
-      <div class="confirm-dialog" @click.stop>
-        <div class="dialog-header">
-          <div class="dialog-icon">🎯</div>
-          <h3>确认进入下一步</h3>
-        </div>
-
-        <!-- 🔥 保存成功提示条（独立显示） -->
-        <transition name="fade">
-          <div v-if="tempSaveStatus" class="save-success-banner">
-            <span class="save-icon">✅</span>
-            <span>{{ tempSaveStatus }}</span>
-            <span class="save-time">{{ lastTempSaveTime }}</span>
-          </div>
-        </transition>
-
-        <div class="dialog-content">
-          <p>您即将完成问题分析阶段，进入下一个学习环节。请确认或修改您的最终内容。</p>
-
-          <!-- 可编辑的快照区域 -->
-          <div v-if="editableFinalAnswer" class="answer-preview">
-            <div class="preview-header">
-              <span class="preview-icon">📝</span>
-              <span class="preview-title">本步骤的最终内容（可编辑）</span>
-            </div>
-
-            <!-- 🔥 新增：任务标题 -->
-            <div class="task-title">
-              <span class="task-icon">🔍</span>
-              <span class="task-text">任务：识别影响教室通风的关键因素，并设计控制策略</span>
-            </div>
-
-            <div class="preview-body">
-              <textarea
-                v-model="editableFinalAnswer"
-                class="preview-textarea"
-                rows="15"
-                placeholder="请输入或修改你的最终内容..."
-              ></textarea>
-
-              <p class="preview-hint">💡 这是您最后一次修改机会，请仔细检查后点击"确定继续"。</p>
-
-              <div class="char-count">字数：{{ editableFinalAnswer.length }} 字符</div>
-            </div>
-          </div>
-
-          <!-- 完成情况摘要 -->
-          <div class="completion-summary">
-            <div class="summary-item">
-              <span class="summary-icon">💬</span>
-              <span>进行了 {{ conversationCount }} 轮问题分析讨论</span>
-            </div>
-            <div class="summary-item" v-if="stage1Completed">
-              <span class="summary-icon">✅</span>
-              <span>已完成因素识别阶段</span>
-            </div>
-            <div class="summary-item" v-if="stage2Completed">
-              <span class="summary-icon">✅</span>
-              <span>已完成控制设计阶段</span>
-            </div>
-            <div class="summary-item" v-if="helpSystem.totalCycles > 0">
-              <span class="summary-icon">💡</span>
-              <span>使用了 {{ helpSystem.totalCycles }} 次智能帮助</span>
-            </div>
-          </div>
-
-          <div class="dialog-warning">
-            <span class="warning-icon">⚠️</span>
-            <span>点击"确定继续"后，您将无法返回修改当前的问题分析内容。</span>
-          </div>
-        </div>
-
-        <!-- 弹窗按钮区域 -->
-        <div class="dialog-actions">
-          <!-- 返回对话按钮 -->
-          <button class="cancel-button" @click="closeConfirmDialog">返回对话</button>
-
-          <!-- 临时保存按钮 -->
+  <!-- 底部用户输入区域 -->
+  <div class="input-section" :class="{ 'input-visible': showAnswerArea }">
+    <div class="input-container">
+      <textarea
+        v-model="userAnswer"
+        :placeholder="currentStagePlaceholder"
+        class="user-input"
+        :disabled="isStepLocked || isGenerating || isConversationLimitReached"
+        @input="handleInput"
+        rows="3"
+      ></textarea>
+      <div class="input-toolbar">
+        <button
+          class="help-button"
+          @click="requestHelp"
+          :disabled="isStepLocked || isGenerating || isConversationLimitReached || !canUseHelp"
+          :title="isStepLocked ? '步骤已锁定' : getHelpButtonTitle"
+        >
+          <span class="help-icon">💡</span>
+          <span class="help-text">我想提问</span>
+          <span class="help-counter"> {{ remainingCycles }}/{{ helpSystem.maxCycles }} </span>
+        </button>
+        <div class="action-buttons">
           <button
-            class="temp-save-button"
-            @click="handleTempSaveInDialog"
-            :disabled="!isContentModified || !editableFinalAnswer.trim()"
-            :class="{ saved: isSaved }"
+            v-if="!isConversationLimitReached"
+            class="submit-button"
+            @click="submitAnswer"
+            :disabled="isStepLocked || !canSubmit || isGenerating"
           >
-            <span class="save-icon">{{ isSaved ? '✅' : '💾' }}</span>
-            <span>{{ isSaved ? '已保存' : '临时保存' }}</span>
+            <span v-if="isGenerating">
+              <span class="button-loading-dots">
+                <span class="button-dot"></span>
+                <span class="button-dot"></span>
+                <span class="button-dot"></span>
+              </span>
+              分析中...
+            </span>
+            <span v-else>{{ currentSubmitButtonText }}</span>
           </button>
-
-          <!-- 确认按钮 -->
+          <!-- 关键修改：当第二阶段完成或对话达到限制时显示下一步按钮 -->
           <button
-            class="confirm-button"
-            @click="confirmNextStep"
-            :disabled="!editableFinalAnswer.trim()"
+            class="next-button"
+            @click="handleNextStep"
+            v-if="allStagesCompleted || isConversationLimitReached"
           >
-            确定继续
+            下一步
           </button>
         </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- 🔥 帮助弹窗 -->
+  <div v-if="showHelpDialog" class="help-dialog-overlay" @click="closeHelpDialog">
+    <div class="help-dialog" @click.stop>
+      <div class="help-dialog-header">
+        <div class="help-dialog-icon">💬</div>
+        <h3>选择帮助方式</h3>
+        <button class="close-button" @click="closeHelpDialog">✕</button>
+      </div>
+
+      <div class="help-dialog-content">
+        <p class="help-dialog-description">请选择你需要的帮助类型：</p>
+
+        <!-- 帮助选项 -->
+        <div class="help-options">
+          <!-- 选项1：完善内容 -->
+          <button
+            class="help-option"
+            :class="{
+              active: helpMode === 'refine',
+              disabled: !availableHelpModes.refine,
+            }"
+            @click="selectHelpMode('refine')"
+            :disabled="!userAnswer.trim() || !availableHelpModes.refine"
+          >
+            <div class="option-icon">🗣</div>
+            <div class="option-content">
+              <div class="option-title">
+                帮我完善内容
+                <span v-if="!availableHelpModes.refine" class="used-badge">已使用</span>
+              </div>
+              <div class="option-description">
+                "我好像写得不太清楚，帮我完善一下吧。"（请先在输入框中写下答案，再点击该按钮）
+              </div>
+            </div>
+            <div class="option-arrow">→</div>
+          </button>
+
+          <!-- 选项2：给示例 -->
+          <button
+            class="help-option"
+            :class="{
+              active: helpMode === 'example',
+              disabled: !availableHelpModes.example,
+            }"
+            @click="selectHelpMode('example')"
+            :disabled="!availableHelpModes.example"
+          >
+            <div class="option-icon">💡</div>
+            <div class="option-content">
+              <div class="option-title">
+                给我看看例子
+                <span v-if="!availableHelpModes.example" class="used-badge">已使用</span>
+              </div>
+              <div class="option-description">"我有点不确定怎么做，能给个参考例子吗？"</div>
+            </div>
+            <div class="option-arrow">→</div>
+          </button>
+
+          <!-- 选项3：自定义提问 -->
+          <button
+            class="help-option"
+            :class="{
+              active: helpMode === 'custom',
+              disabled: !availableHelpModes.custom,
+            }"
+            @click="selectHelpMode('custom')"
+            :disabled="!availableHelpModes.custom"
+          >
+            <div class="option-icon">✍️</div>
+            <div class="option-content">
+              <div class="option-title">
+                我想自己提问
+                <span v-if="!availableHelpModes.custom" class="used-badge">已使用</span>
+              </div>
+              <div class="option-description">"我有具体的问题想问。"</div>
+            </div>
+            <div class="option-arrow">→</div>
+          </button>
+        </div>
+
+        <!-- 🔥 周期提示 -->
+        <div class="help-cycle-info">
+          <span class="cycle-icon">🔄</span>
+          <span>剩余帮助次数：{{ helpSystem.maxCycles - helpSystem.totalCycles }} 次</span>
+          <span v-if="helpSystem.isInCycle" class="cycle-tip">
+            （当前周期已使用
+            {{ Object.values(helpSystem.currentCycleUsed).filter(Boolean).length }}/3）
+          </span>
+        </div>
+
+        <!-- 自定义问题输入框 -->
+        <div v-if="helpMode === 'custom'" class="custom-question-section">
+          <textarea
+            v-model="customQuestion"
+            placeholder="请输入你的问题..."
+            class="custom-question-input"
+            rows="3"
+            autofocus
+          ></textarea>
+          <div class="custom-question-actions">
+            <button class="cancel-custom-button" @click="helpMode = null">取消</button>
+            <button
+              class="submit-custom-button"
+              @click="submitCustomQuestion"
+              :disabled="!customQuestion.trim()"
+            >
+              提交问题
+            </button>
+          </div>
+        </div>
+
+        <!-- 完善内容提示 -->
+        <div v-if="helpMode === 'refine' && !userAnswer.trim()" class="help-tip">
+          <span class="tip-icon">💡</span>
+          <span>请先在下方输入框中写一些内容，然后我可以帮你完善。</span>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- 🔥 帮助次数用尽提示 -->
+  <div v-if="showHelpLimitDialog" class="help-dialog-overlay" @click="closeHelpLimitDialog">
+    <div class="help-limit-dialog" @click.stop>
+      <div class="limit-dialog-icon">⚠️</div>
+      <h3>帮助次数已用完</h3>
+      <p>您已使用完所有的帮助次数（{{ helpSystem.maxCycles }} 次）。</p>
+      <p class="limit-tip">请继续独立完成剩余的任务，或点击"提交回答"按钮提交您的答案。</p>
+      <button class="limit-confirm-button" @click="closeHelpLimitDialog">知道了</button>
+    </div>
+  </div>
+
+  <!-- 🔥 周期内帮助已用尽提示 -->
+  <div v-if="showCycleLimitDialog" class="help-dialog-overlay" @click="closeCycleLimitDialog">
+    <div class="help-limit-dialog" @click.stop>
+      <div class="limit-dialog-icon">🔄</div>
+      <h3>当前周期的帮助已全部使用</h3>
+      <p>您已使用完当前周期的3种帮助方式。</p>
+      <p class="limit-tip">
+        请先提交您的答案，提交后将开启新的帮助周期。
+        <br />
+        剩余帮助周期：<strong>{{ helpSystem.maxCycles - helpSystem.totalCycles }}</strong> 次
+      </p>
+      <button class="limit-confirm-button" @click="closeCycleLimitDialog">知道了</button>
+    </div>
+  </div>
+
+  <!-- 🔥 修改：确认弹窗 - 统一风格版本 -->
+  <div v-if="showConfirmDialog" class="confirm-dialog-overlay" @click="closeConfirmDialog">
+    <div class="confirm-dialog" @click.stop>
+      <div class="dialog-header">
+        <div class="dialog-icon">🎯</div>
+        <h3>确认进入下一步</h3>
+      </div>
+
+      <!-- 🔥 保存成功提示条（独立显示） -->
+      <transition name="fade">
+        <div v-if="tempSaveStatus" class="save-success-banner">
+          <span class="save-icon">✅</span>
+          <span>{{ tempSaveStatus }}</span>
+          <span class="save-time">{{ lastTempSaveTime }}</span>
+        </div>
+      </transition>
+
+      <div class="dialog-content">
+        <p>您即将完成问题分析阶段，进入下一个学习环节。请确认或修改您的最终内容。</p>
+
+        <!-- 可编辑的快照区域 -->
+        <div v-if="editableFinalAnswer" class="answer-preview">
+          <div class="preview-header">
+            <span class="preview-icon">📝</span>
+            <span class="preview-title">本步骤的最终内容（可编辑）</span>
+          </div>
+
+          <!-- 🔥 新增：任务标题 -->
+          <div class="task-title">
+            <span class="task-icon">🔍</span>
+            <span class="task-text">任务：识别影响教室通风的关键因素，并设计控制策略</span>
+          </div>
+
+          <div class="preview-body">
+            <textarea
+              v-model="editableFinalAnswer"
+              class="preview-textarea"
+              rows="15"
+              placeholder="请输入或修改你的最终内容..."
+            ></textarea>
+
+            <p class="preview-hint">💡 这是您最后一次修改机会，请仔细检查后点击"确定继续"。</p>
+
+            <div class="char-count">字数：{{ editableFinalAnswer.length }} 字符</div>
+          </div>
+        </div>
+
+        <!-- 完成情况摘要 -->
+        <div class="completion-summary">
+          <div class="summary-item">
+            <span class="summary-icon">💬</span>
+            <span>进行了 {{ conversationCount }} 轮问题分析讨论</span>
+          </div>
+          <div class="summary-item" v-if="stage1Completed">
+            <span class="summary-icon">✅</span>
+            <span>已完成因素识别阶段</span>
+          </div>
+          <div class="summary-item" v-if="stage2Completed">
+            <span class="summary-icon">✅</span>
+            <span>已完成控制设计阶段</span>
+          </div>
+          <div class="summary-item" v-if="helpSystem.totalCycles > 0">
+            <span class="summary-icon">💡</span>
+            <span>使用了 {{ helpSystem.totalCycles }} 次智能帮助</span>
+          </div>
+        </div>
+
+        <div class="dialog-warning">
+          <span class="warning-icon">⚠️</span>
+          <span>点击"确定继续"后，您将无法返回修改当前的问题分析内容。</span>
+        </div>
+      </div>
+
+      <!-- 弹窗按钮区域 -->
+      <div class="dialog-actions">
+        <!-- 返回对话按钮 -->
+        <button class="cancel-button" @click="closeConfirmDialog">返回对话</button>
+
+        <!-- 临时保存按钮 -->
+        <button
+          class="temp-save-button"
+          @click="handleTempSaveInDialog"
+          :disabled="!isContentModified || !editableFinalAnswer.trim()"
+          :class="{ saved: isSaved }"
+        >
+          <span class="save-icon">{{ isSaved ? '✅' : '💾' }}</span>
+          <span>{{ isSaved ? '已保存' : '临时保存' }}</span>
+        </button>
+
+        <!-- 确认按钮 -->
+        <button
+          class="confirm-button"
+          @click="confirmNextStep"
+          :disabled="!editableFinalAnswer.trim()"
+        >
+          确定继续
+        </button>
       </div>
     </div>
   </div>
@@ -558,6 +772,228 @@ import { ref, computed, reactive, onMounted, nextTick, watch } from 'vue'
 import { useRouter } from 'vue-router'
 import { simpleStorage } from '../../api/utils/simpleStorage'
 import { trackStep2Event } from '../../src/utils/tracking'
+
+// 新增
+interface Factor {
+  id: string
+  label: string
+  description: string
+  selected: boolean
+}
+
+interface FactorCategories {
+  environment: Factor[]
+  people: Factor[]
+  equipment: Factor[]
+  others: Factor[]
+}
+
+// 新增响应式数据
+const factorOptions = reactive<FactorCategories>({
+  environment: [
+    { id: 'outdoor_temp', label: '室外温度变化', description: '早晨22℃→下午35℃', selected: false },
+    { id: 'indoor_temp', label: '室内温度', description: '学生感受到的温度', selected: false },
+    { id: 'humidity', label: '空气湿度', description: '影响体感温度', selected: false },
+    { id: 'co2', label: 'CO2浓度', description: '影响空气质量', selected: false },
+    { id: 'wind', label: '室外风速', description: '影响自然通风', selected: false },
+  ],
+  people: [
+    { id: 'student_count', label: '学生人数', description: '40人产热', selected: false },
+    { id: 'activity', label: '活动强度', description: '上课vs体育课', selected: false },
+    { id: 'duration', label: '课程时长', description: '连续上课时间', selected: false },
+  ],
+  equipment: [
+    { id: 'ac_power', label: '空调功率', description: '3.2kW制冷', selected: false },
+    { id: 'windows', label: '窗户位置', description: '通风路径', selected: false },
+    { id: 'fans', label: '风扇/排气扇', description: '辅助通风', selected: false },
+  ],
+  others: [
+    { id: 'orientation', label: '教室朝向', description: '影响日晒', selected: false },
+    { id: 'curtains', label: '窗帘遮光', description: '减少热辐射', selected: false },
+    { id: 'layout', label: '座位布局', description: '影响流通', selected: false },
+  ],
+})
+
+const customFactorInput = ref<string>('')
+const stage1SelectionSubmitted = ref<boolean>(false)
+
+const selectedCount = computed(() => {
+  return Object.values(factorOptions)
+    .flat()
+    .filter((f) => f.selected).length
+})
+
+const selectionStep = ref<'select' | 'rank' | 'submitted'>('select')
+const rankedFactors = ref<Factor[]>([]) // 排序后的因素列表
+
+const MAX_SELECTION = 8 // 最大选择数量
+
+// 修改计算属性
+const canProceedToRank = computed(() => {
+  return selectedCount.value >= 3 && selectedCount.value <= MAX_SELECTION
+})
+
+// ==================== 🔥 新增：确认选择函数 ====================
+
+const confirmFactorSelection = async () => {
+  if (rankedFactors.value.length < 3) {
+    alert('请至少选择3个影响因素')
+    return
+  }
+
+  // 🔥 区分关键因素和次要因素
+  const keyFactors = rankedFactors.value.slice(0, 3)
+  const secondaryFactors = rankedFactors.value.slice(3)
+
+  // 🔥 构建提交内容（带排序）
+  let submittedContent = '【我认为最重要的3个关键因素是】\n'
+  keyFactors.forEach((factor, index) => {
+    submittedContent += `${index + 1}. ${factor.label}（${factor.description}）\n`
+  })
+
+  if (secondaryFactors.length > 0) {
+    submittedContent += '\n【其他需要考虑的因素】\n'
+    secondaryFactors.forEach((factor, index) => {
+      submittedContent += `${index + 4}. ${factor.label}\n`
+    })
+  }
+
+  if (customFactorInput.value.trim()) {
+    submittedContent += `\n【我补充的因素】\n${customFactorInput.value.trim()}`
+  }
+
+  // 添加用户消息
+  addMessage('user', submittedContent, 1)
+
+  // 标记阶段1已提交选择
+  stage1SelectionSubmitted.value = true
+  selectionStep.value = 'submitted'
+
+  // 埋点
+  await trackStep2Event(
+    'step2_stage1_factors_ranked_submitted',
+    conversationData.sessionId,
+    1,
+    conversationCount.value,
+    {
+      totalCount: rankedFactors.value.length,
+      keyFactors: keyFactors.map((f) => f.label).join(','),
+      secondaryFactors: secondaryFactors.map((f) => f.label).join(','),
+      hasCustomFactors: !!customFactorInput.value.trim(),
+    },
+  )
+
+  // 🔥 显示加载动画
+  isGenerating.value = true
+  loadingStep.value = 0
+
+  const stepInterval = setInterval(() => {
+    if (loadingStep.value < 3) loadingStep.value++
+  }, 3000)
+
+  try {
+    // 🔥 调用 AI API（只为了获取反馈）
+    const result = await callAIAPI(submittedContent, 1)
+    clearInterval(stepInterval)
+
+    // 添加 AI 回复
+    addMessage('ai', result.response, 1)
+
+    // 🔥 核心修改：直接完成 Stage1 并推进到 Stage2
+    await completeStage1AndAdvanceToStage2()
+
+    // 🔥 保存对话到数据库（包含因素数据）
+    await saveConversationToDB({
+      sessionId: conversationData.sessionId,
+      step: 2,
+      stage: 1,
+      userInput: submittedContent,
+      aiResponse: result.response,
+      conversationCount: conversationData.conversationCount,
+      timestamp: new Date(),
+      context: 'step2_stage1_factor_selection_ranked',
+      // 🔥 新增：传递因素数据到后端
+      rankedFactorsData: {
+        isRanked: true,
+        keyFactors: keyFactors.map((f) => ({
+          text: f.label,
+          description: f.description,
+        })),
+        secondaryFactors: secondaryFactors.map((f) => f.label),
+        customFactors: customFactorInput.value.trim(),
+        totalCount: rankedFactors.value.length,
+      },
+    })
+  } catch (error) {
+    clearInterval(stepInterval)
+    console.error('AI响应失败:', error)
+    addMessage('ai', '抱歉，系统暂时无法处理，请重试', 1)
+  } finally {
+    isGenerating.value = false
+    loadingStep.value = 0
+  }
+
+  saveToStorage()
+  nextTick(() => scrollToBottom())
+}
+
+/**
+ * 完成 Stage1 并推进到 Stage2
+ * 因素选择+排序提交后直接推进，无需判断
+ */
+const completeStage1AndAdvanceToStage2 = async () => {
+  console.log('✅ Step2-Stage1 因素选择完成，推进到 Stage2')
+
+  // 1. 标记 Stage1 完成
+  stage1Completed.value = true
+  simpleStorage.updateStageStatus(2, 1, true)
+  conversationData.stageCompletionStatus[0] = true
+
+  // 2. 埋点 - Stage1 完成
+  await trackStep2Event(
+    'step2_stage_complete',
+    conversationData.sessionId,
+    1,
+    conversationData.conversationCount,
+    {
+      stageNumber: 1,
+      completionMethod: 'factor_selection_ranked', // 标记完成方式
+      totalInteractions: conversationData.messages.filter((m) => m.stage === 1).length,
+    },
+  )
+
+  // 3. 延迟1秒后推进到 Stage2（让用户看到AI反馈）
+  setTimeout(() => {
+    // 更新到 Stage2
+    simpleStorage.updateCurrentStage(2, 2)
+
+    // 重新加载数据
+    const newData = simpleStorage.getStep2Data()
+    if (newData) {
+      conversationData.messages = newData.messages.map(
+        (msg: StoredMessage): Message => ({
+          id: msg.id,
+          type: msg.type,
+          content: msg.content,
+          step: msg.step || 2,
+          stage: msg.stage,
+          timestamp: new Date(msg.timestamp),
+        }),
+      )
+      conversationData.conversationCount = newData.conversationCount || 0
+      conversationData.currentStage = newData.currentStage || 2
+      conversationData.stageCompletionStatus = newData.stageCompletionStatus || [true, false]
+    }
+
+    // 4. 检查是否需要添加 Stage2 的系统指令
+    const stage2Messages = conversationData.messages.filter((m) => m.stage === 2)
+    if (stage2Messages.length === 0) {
+      addSystemInstruction(2)
+    }
+
+    console.log('✅ 已推进到 Stage2（控制设计阶段）')
+  }, 1000)
+}
 
 // ==================== 类型定义 ====================
 interface Message {
@@ -850,6 +1286,64 @@ const currentSubmitButtonText = computed(() => {
 })
 
 const allStagesCompleted = computed(() => canProceedToNextStep.value)
+
+// ==================== 🔥 新增：排序相关函数 ====================
+
+// 进入排序步骤
+const goToRankingStep = () => {
+  // 收集已选择的因素
+  const selected = Object.values(factorOptions)
+    .flat()
+    .filter((f) => f.selected)
+
+  // 初始化排序列表（保持选择顺序）
+  rankedFactors.value = [...selected]
+
+  selectionStep.value = 'rank'
+
+  // 埋点
+  trackStep2Event(
+    'step2_stage1_proceed_to_ranking',
+    conversationData.sessionId,
+    1,
+    conversationCount.value,
+    {
+      selectedCount: selected.length,
+      factorIds: selected.map((f) => f.id).join(','),
+    },
+  )
+}
+
+// 返回选择步骤
+const backToSelection = () => {
+  selectionStep.value = 'select'
+
+  trackStep2Event(
+    'step2_stage1_back_to_selection',
+    conversationData.sessionId,
+    1,
+    conversationCount.value,
+    {},
+  )
+}
+
+// 向上移动
+const moveUp = (index: number) => {
+  if (index === 0) return
+
+  const temp = rankedFactors.value[index]
+  rankedFactors.value[index] = rankedFactors.value[index - 1]
+  rankedFactors.value[index - 1] = temp
+}
+
+// 向下移动
+const moveDown = (index: number) => {
+  if (index === rankedFactors.value.length - 1) return
+
+  const temp = rankedFactors.value[index]
+  rankedFactors.value[index] = rankedFactors.value[index + 1]
+  rankedFactors.value[index + 1] = temp
+}
 
 // ==================== 🔥 快照生成函数 ====================
 
@@ -1156,10 +1650,6 @@ const confirmNextStep = async () => {
   }
 
   // 7. 跳转到下一步
-  router.push('/experiment/step3')
-}
-
-const goToNextStep = () => {
   router.push('/experiment/step3')
 }
 
@@ -1511,11 +2001,11 @@ async function callAIAPI(
     const recentQuestions = getRecentAIQuestions(conversationData.messages)
 
     const conversationHistory = conversationData.messages
-      .filter((msg) => msg.step === 2 && msg.stage === stage)
-      .map((msg) => ({
+      .filter((msg: Message) => msg.step === 2 && msg.stage === stage)
+      .map((msg: Message) => ({
         type: msg.type,
         content: msg.content,
-        step: msg.step,
+        step: msg.step || 2, // 添加默认值
         stage: msg.stage,
         timestamp: msg.timestamp,
       }))
@@ -1639,8 +2129,8 @@ async function getSmartHelp(
         },
         // 🔥 添加对话历史
         conversationHistory: conversationData.messages
-          .filter((msg) => msg.step === 2 && msg.stage === conversationData.currentStage)
-          .map((msg) => ({
+          .filter((msg: Message) => msg.step === 2 && msg.stage === conversationData.currentStage)
+          .map((msg: Message) => ({
             type: msg.type,
             content: msg.content,
             step: 2,
@@ -1720,63 +2210,18 @@ const shouldAdvanceStage = (
   conversationHistory: Message[],
   latestAIResponse: string,
 ): boolean => {
-  // 🔥 只统计真实用户交互（排除帮助请求）
-  const realUserAnswers = conversationHistory.filter(
-    (m) => m.type === 'user' && m.stage === stage && !isHelpRequest(m),
-  )
-
-  const realInteractionCount = realUserAnswers.length
-
-  console.log(`
-📊 Stage${stage} 判断详情:
-  - 真实交互次数: ${realInteractionCount}
-  - 总消息数: ${conversationHistory.filter((m) => m.stage === stage).length}
-  `)
-
+  // 🔥 Stage1：不再需要判断（已通过 confirmFactorSelection 直接推进）
   if (stage === 1) {
-    // ==================== Stage1 新规则 ====================
+    console.log('⚠️ Stage1 推进逻辑已移至 confirmFactorSelection 函数')
+    return false // 始终返回 false，因为推进由 completeStage1AndAdvanceToStage2 完成
+  }
 
-    // 规则0: 至少要有1次真实回答
-    if (realInteractionCount === 0) {
-      console.log('❌ Stage1 未完成：还没有真实回答')
-      return false
-    }
-
-    // 规则1: 第4轮自动跳转
-    if (realInteractionCount >= 4) {
-      console.log('✅ Stage1 完成：达到第4轮，自动跳转到Stage2')
-      return true
-    }
-
-    // 规则2: 累计提到3个因素
-    const userText = realUserAnswers.map((m) => m.content.toLowerCase()).join(' ')
-    const factors = [
-      '温度',
-      'co2',
-      '二氧化碳',
-      '湿度',
-      '人数',
-      '时间',
-      '天气',
-      '设备',
-      '窗',
-      '门',
-      '布局',
-      '朝向',
-    ]
-    const mentionedFactors = factors.filter((f) => userText.includes(f)).length
-
-    if (mentionedFactors >= 3) {
-      console.log(`✅ Stage1 完成：提到${mentionedFactors}个因素，达到3个门槛`)
-      return true
-    }
-
-    console.log(
-      `⏳ Stage1 进行中：第${realInteractionCount}轮，提到${mentionedFactors}个因素（需要3个）`,
+  // 🔥 Stage2：保持原有判断逻辑
+  if (stage === 2) {
+    const realUserAnswers = conversationHistory.filter(
+      (m) => m.type === 'user' && m.stage === stage && !isHelpRequest(m),
     )
-    return false
-  } else if (stage === 2) {
-    // ==================== Stage2 新规则 ====================
+    const realInteractionCount = realUserAnswers.length
 
     // 规则1: 真实交互2轮自动完成
     if (realInteractionCount >= 2) {
@@ -1784,7 +2229,7 @@ const shouldAdvanceStage = (
       return true
     }
 
-    // 规则2: 第1轮就包含完整控制逻辑也可以完成
+    // 规则2: 第1轮就包含完整控制逻辑
     const userText = realUserAnswers.map((m) => m.content.toLowerCase()).join(' ')
     const hasTemperatureThreshold = /(\d+度|26|24|25|28|30)/.test(userText)
     const hasAction = /(开窗|关窗|空调|风扇|排风|通风)/.test(userText)
@@ -1928,7 +2373,24 @@ const getRecentAIQuestions = (messages: Message[]): string => {
   return recent.map((m) => m.content).join(' | ')
 }
 
-const saveConversationToDB = async (conversationDataPayload: ConversationData): Promise<void> => {
+const saveConversationToDB = async (conversationDataPayload: {
+  sessionId: string
+  step: number
+  stage: number
+  userInput: string
+  aiResponse: string
+  conversationCount: number
+  timestamp: Date
+  context: string
+  // 🔥 新增：因素数据（可选）
+  rankedFactorsData?: {
+    isRanked: boolean
+    keyFactors: Array<{ text: string; description: string }>
+    secondaryFactors: string[]
+    customFactors: string
+    totalCount: number
+  }
+}): Promise<void> => {
   try {
     const experimentId = localStorage.getItem('experimentId')
     const studentName = localStorage.getItem('studentName')
@@ -1953,6 +2415,16 @@ const saveConversationToDB = async (conversationDataPayload: ConversationData): 
 }
 
 const saveToStorage = () => {
+  // 🔥 保存因素选择数据
+  if (currentStage.value === 1) {
+    simpleStorage.setItem('step2_stage1_factors', {
+      selections: factorOptions,
+      customFactors: customFactorInput.value,
+      submitted: stage1SelectionSubmitted.value,
+      selectedCount: selectedCount.value,
+    })
+  }
+
   // 🔥 保存快照数据到 localStorage
   if (finalAnswerConfirmed.value) {
     simpleStorage.setItem('step2_final_answer_confirmed', {
@@ -2000,6 +2472,19 @@ const showContentSequentially = async () => {
 
 onMounted(async () => {
   console.log('🎬 Step2 组件已挂载')
+
+  // 🔥 恢复因素选择状态
+  const savedFactors = simpleStorage.getItem<{
+    selections: FactorCategories
+    customFactors: string
+    submitted: boolean
+    selectedCount: number
+  }>('step2_stage1_factors')
+  if (savedFactors) {
+    Object.assign(factorOptions, savedFactors.selections)
+    customFactorInput.value = savedFactors.customFactors || ''
+    stage1SelectionSubmitted.value = savedFactors.submitted || false
+  }
 
   // 🔥 ========== 智能清理 + 恢复数据（修复版） ==========
   const currentSessionId = simpleStorage.getSessionId()
@@ -4150,6 +4635,521 @@ watch(currentStage, async (newStage, oldStage) => {
   to {
     transform: translateY(0);
     opacity: 1;
+  }
+}
+
+/* ==================== 因素选择面板样式 ==================== */
+.factor-selection-panel {
+  padding: 24px;
+  background: white;
+  border-radius: 12px;
+  margin: 20px 0;
+  animation: slideIn 0.4s ease;
+}
+
+.selection-header {
+  text-align: center;
+  margin-bottom: 32px;
+}
+
+.header-icon {
+  font-size: 48px;
+  margin-bottom: 16px;
+}
+
+.selection-header h3 {
+  font-size: 24px;
+  font-weight: 700;
+  color: #1e293b;
+  margin: 0 0 12px 0;
+}
+
+.selection-hint {
+  font-size: 14px;
+  color: #64748b;
+  margin: 0;
+}
+
+/* 因素分类容器 */
+.factor-categories {
+  display: grid;
+  gap: 24px;
+  margin-bottom: 24px;
+}
+
+.factor-category {
+  background: #f8fafc;
+  border-radius: 12px;
+  padding: 20px;
+  border: 2px solid #e2e8f0;
+}
+
+.category-title {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 16px;
+  font-weight: 600;
+  color: #334155;
+  margin: 0 0 16px 0;
+}
+
+.category-icon {
+  font-size: 20px;
+}
+
+/* 因素选项 */
+.factor-options {
+  display: grid;
+  gap: 12px;
+}
+
+.factor-option {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 12px 16px;
+  background: white;
+  border: 2px solid #e2e8f0;
+  border-radius: 8px;
+  cursor: pointer;
+  transition: all 0.3s ease;
+}
+
+.factor-option:hover {
+  border-color: #3b82f6;
+  background: #f0f9ff;
+  transform: translateX(4px);
+}
+
+.factor-option.selected {
+  border-color: #3b82f6;
+  background: linear-gradient(135deg, #eff6ff 0%, #dbeafe 100%);
+}
+
+.factor-checkbox {
+  width: 20px;
+  height: 20px;
+  cursor: pointer;
+  accent-color: #3b82f6;
+}
+
+.factor-content {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.factor-label {
+  font-size: 15px;
+  font-weight: 500;
+  color: #1e293b;
+}
+
+.factor-desc {
+  font-size: 12px;
+  color: #64748b;
+}
+
+.checkmark {
+  font-size: 20px;
+  color: #3b82f6;
+  opacity: 0;
+  transition: opacity 0.3s ease;
+}
+
+.factor-option.selected .checkmark {
+  opacity: 1;
+}
+
+/* 自定义补充区域 */
+.custom-factors-section {
+  background: #fffbeb;
+  border: 2px solid #fbbf24;
+  border-radius: 12px;
+  padding: 20px;
+  margin-bottom: 24px;
+}
+
+.custom-title {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 15px;
+  font-weight: 600;
+  color: #92400e;
+  margin: 0 0 12px 0;
+}
+
+.custom-icon {
+  font-size: 18px;
+}
+
+.custom-input {
+  width: 100%;
+  padding: 12px;
+  border: 2px solid #fbbf24;
+  border-radius: 8px;
+  font-size: 14px;
+  font-family: inherit;
+  resize: vertical;
+  transition: border-color 0.3s ease;
+}
+
+.custom-input:focus {
+  outline: none;
+  border-color: #f59e0b;
+  background: white;
+}
+
+.custom-char-count {
+  text-align: right;
+  font-size: 12px;
+  color: #92400e;
+  margin-top: 4px;
+}
+
+/* 选择统计和按钮 */
+.selection-summary {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 20px;
+  background: linear-gradient(135deg, #f0f9ff 0%, #e0f2fe 100%);
+  border-radius: 12px;
+  border: 2px solid #0ea5e9;
+}
+
+.summary-stat {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.stat-icon {
+  font-size: 24px;
+}
+
+.stat-text {
+  font-size: 15px;
+  color: #0c4a6e;
+}
+
+.stat-number {
+  font-size: 20px;
+  color: #0284c7;
+}
+
+.warning-text {
+  font-size: 13px;
+  color: #dc2626;
+  font-weight: 500;
+}
+
+.success-text {
+  font-size: 13px;
+  color: #16a34a;
+  font-weight: 600;
+}
+
+.confirm-selection-button {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 12px 32px;
+  background: linear-gradient(135deg, #3b82f6 0%, #2563eb 100%);
+  color: white;
+  border: none;
+  border-radius: 8px;
+  font-size: 16px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.3s ease;
+  box-shadow: 0 4px 12px rgba(59, 130, 246, 0.3);
+}
+
+.confirm-selection-button:hover:not(.disabled) {
+  background: linear-gradient(135deg, #2563eb 0%, #1d4ed8 100%);
+  transform: translateY(-2px);
+  box-shadow: 0 6px 16px rgba(59, 130, 246, 0.4);
+}
+
+.confirm-selection-button.disabled {
+  background: #cbd5e1;
+  cursor: not-allowed;
+  box-shadow: none;
+}
+
+.button-icon {
+  font-size: 18px;
+}
+
+@keyframes slideIn {
+  from {
+    opacity: 0;
+    transform: translateY(20px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+/* ==================== 排序界面样式 ==================== */
+.ranking-content {
+  animation: slideIn 0.4s ease;
+}
+
+.ranking-header {
+  text-align: center;
+  margin-bottom: 32px;
+}
+
+.ranking-hint {
+  font-size: 14px;
+  color: #64748b;
+  margin: 12px 0 0 0;
+}
+
+.ranking-list {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  margin-bottom: 24px;
+}
+
+.ranking-item {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  padding: 16px;
+  background: white;
+  border: 2px solid #e2e8f0;
+  border-radius: 12px;
+  transition: all 0.3s ease;
+}
+
+.ranking-item:hover {
+  border-color: #3b82f6;
+  box-shadow: 0 4px 12px rgba(59, 130, 246, 0.15);
+}
+
+/* 前3名高亮 */
+.ranking-item:nth-child(-n + 3) {
+  background: linear-gradient(135deg, #fef3c7 0%, #fde68a 100%);
+  border-color: #f59e0b;
+}
+
+.ranking-item:nth-child(1) .rank-number {
+  background: linear-gradient(45deg, #ef4444, #dc2626);
+  box-shadow: 0 4px 12px rgba(239, 68, 68, 0.4);
+}
+
+.ranking-item:nth-child(2) .rank-number {
+  background: linear-gradient(45deg, #f59e0b, #d97706);
+  box-shadow: 0 4px 12px rgba(245, 158, 11, 0.4);
+}
+
+.ranking-item:nth-child(3) .rank-number {
+  background: linear-gradient(45deg, #10b981, #059669);
+  box-shadow: 0 4px 12px rgba(16, 185, 129, 0.4);
+}
+
+.rank-number {
+  width: 40px;
+  height: 40px;
+  border-radius: 50%;
+  background: linear-gradient(45deg, #3b82f6, #2563eb);
+  color: white;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 18px;
+  font-weight: 700;
+  flex-shrink: 0;
+  box-shadow: 0 4px 12px rgba(59, 130, 246, 0.3);
+}
+
+.factor-info {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.rank-controls {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.rank-btn {
+  width: 32px;
+  height: 32px;
+  border: 2px solid #e2e8f0;
+  background: white;
+  border-radius: 6px;
+  font-size: 16px;
+  cursor: pointer;
+  transition: all 0.2s ease;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.rank-btn:hover:not(:disabled) {
+  border-color: #3b82f6;
+  background: #f0f9ff;
+  transform: scale(1.1);
+}
+
+.rank-btn:disabled {
+  opacity: 0.3;
+  cursor: not-allowed;
+}
+
+.custom-factor-display {
+  background: #fffbeb;
+  border: 2px solid #fbbf24;
+  border-radius: 12px;
+  padding: 16px;
+  margin-bottom: 24px;
+}
+
+.custom-factor-display h4 {
+  font-size: 14px;
+  color: #92400e;
+  margin: 0 0 8px 0;
+}
+
+.custom-factor-display p {
+  font-size: 14px;
+  color: #334155;
+  line-height: 1.6;
+  margin: 0;
+}
+
+.ranking-actions {
+  display: flex;
+  gap: 16px;
+  justify-content: center;
+  margin-bottom: 16px;
+}
+
+.back-button,
+.confirm-ranking-button {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 12px 32px;
+  border-radius: 8px;
+  font-size: 16px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.3s ease;
+  border: none;
+}
+
+.back-button {
+  background: #f1f5f9;
+  color: #475569;
+  border: 2px solid #e2e8f0;
+}
+
+.back-button:hover {
+  background: #e2e8f0;
+  transform: translateY(-2px);
+}
+
+.confirm-ranking-button {
+  background: linear-gradient(135deg, #3b82f6 0%, #2563eb 100%);
+  color: white;
+  box-shadow: 0 4px 12px rgba(59, 130, 246, 0.3);
+}
+
+.confirm-ranking-button:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 6px 16px rgba(59, 130, 246, 0.4);
+}
+
+.ranking-tip {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  background: linear-gradient(135deg, #f0f9ff 0%, #e0f2fe 100%);
+  border: 1px solid #0ea5e9;
+  border-radius: 8px;
+  padding: 12px;
+  font-size: 14px;
+  color: #0369a1;
+}
+
+.tip-icon {
+  font-size: 18px;
+}
+
+/* 下一步按钮样式 */
+.next-step-button {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 12px 32px;
+  background: linear-gradient(135deg, #10b981 0%, #059669 100%);
+  color: white;
+  border: none;
+  border-radius: 8px;
+  font-size: 16px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.3s ease;
+  box-shadow: 0 4px 12px rgba(16, 185, 129, 0.3);
+}
+
+.next-step-button:hover:not(.disabled) {
+  transform: translateY(-2px);
+  box-shadow: 0 6px 16px rgba(16, 185, 129, 0.4);
+}
+
+.next-step-button.disabled {
+  background: #cbd5e1;
+  cursor: not-allowed;
+  box-shadow: none;
+}
+
+.error-text {
+  font-size: 13px;
+  color: #dc2626;
+  font-weight: 600;
+}
+
+/* 响应式 */
+@media (max-width: 768px) {
+  .ranking-item {
+    padding: 12px;
+    gap: 12px;
+  }
+
+  .rank-number {
+    width: 32px;
+    height: 32px;
+    font-size: 14px;
+  }
+
+  .rank-btn {
+    width: 28px;
+    height: 28px;
+    font-size: 14px;
+  }
+
+  .ranking-actions {
+    flex-direction: column;
+  }
+
+  .back-button,
+  .confirm-ranking-button {
+    width: 100%;
+    justify-content: center;
   }
 }
 </style>

@@ -531,7 +531,7 @@ function getSocraticSystemPrompt(step, stage = 1) {
 3. 提出下一个引导性问题（25字内）
 
 【输出长度与格式 - 严格】
-- 总回复≤60字，最多3句
+- 总回复小于等于60字，最多3句
 - 仅提出1个问题
 - 禁止使用标题、Markdown、编号或多级列表
 - 不给出完整方案或多步规则
@@ -698,9 +698,12 @@ function getStepSpecificHelpPrompt(step, helpType, actualInput, conversationHist
       ? `\n\n⚠️ 重要：你之前已经给过以下例子，请务必提供完全不同的新例子：\n${previousExamples.map((ex, i) => `${i + 1}. ${ex.substring(0, 80)}...`).join('\n')}`
       : ''
 
-  // 🔥 2. 提取最近的对话上下文（用于refine和custom）
+  // 🔥 2. 提取最近的对话上下文（用于refine、example和custom）
   let recentContext = ''
-  if ((helpType === 'refine' || helpType === 'custom') && conversationHistory.length > 0) {
+  if (
+    (helpType === 'refine' || helpType === 'example' || helpType === 'custom') &&
+    conversationHistory.length > 0
+  ) {
     const recentMessages = conversationHistory.filter((msg) => msg.step === step).slice(-6) // 取最近3轮对话（6条消息）
 
     if (recentMessages.length > 0) {
@@ -725,25 +728,23 @@ ${recentContext}
 请：
 1. 用自然语气肯定学生的想法（5-8字）
 2. 基于对话历史，指出1-2个可以补充的维度（避免重复已讨论的内容）
-3. 给出具体建议（≤30字，且只给1条）
-4. 总回复≤60字；禁止标题/列表/Markdown；不要给完整策略
+3. 给出具体建议（控制在35字内）
 
 直接输出帮助内容。`,
 
       example: `学生需要一个问题分析的参考示例（Step2）。
 ${actualInput ? `学生的问题：${actualInput}` : ''}
 ${previousExamplesNote}
+${recentContext}
 
 请：
-1. 用自然语气回应（5-8字，如"给你举个例子"）
-2. 提供一个问题分析的示例（不超过35字）
-3. 示例要具体、可操作${previousExamples.length > 0 ? '、且与之前例子完全不同' : ''}
-4. 总回复≤60字；禁止标题/列表/Markdown
+1. 先用老师口吻自然回应（5-8字，如"给你举个例子"）
+2. 承接最近对话的具体情境（用学生刚提到的阈值/因素）
+3. 提供单句示例（≤35字），具体、可操作${previousExamples.length > 0 ? '、且与之前例子完全不同' : ''}
+4. 不引入上下文未提到的全新条件
 
 示例格式（参考）：
-"比如分析影响因素时：温度、湿度、CO2、人数密度、窗户朝向都会影响通风需求。"
-或
-"比如设计控制逻辑时：当温度超过28℃且CO2>800ppm时，优先开窗通风。"
+"顺着你说的26℃与外温更高：当室温>26℃且外温更高但湿度更低时，先开窗，若CO₂>800ppm再启风扇。"
 
 根据学生当前所在阶段（因素识别或控制设计）给出合适的示例。
 直接输出帮助内容。`,
@@ -756,8 +757,7 @@ ${recentContext}
 1. 基于对话历史，理解学生问题的背景
 2. 如果学生的问题涉及之前的讨论（如"刚才提到的XX"），请结合历史回答
 3. 回答聚焦在问题分析（影响因素、控制逻辑）
-4. 回答清晰、准确（≤60字，最多3句，仅1问）
-5. 禁止使用标题/列表/Markdown；不要给完整策略
+4. 回答清晰、准确（控制在100字内）
 5. 用自然友好的语气
 
 直接输出帮助内容。`,
@@ -767,9 +767,8 @@ ${actualInput ? `学生的输入：${actualInput}` : '学生点击了帮助按�
 
 请：
 1. 用自然语气回应（5-8字）
-2. 从问题分析角度，提出引导性问题（≤25字，仅1问）
+2. 从问题分析角度，提出引导性问题（25字内）
 3. 引导学生思考：影响因素、控制逻辑、优先级
-4. 总回复≤60字；禁止标题/列表/Markdown
 
 直接输出帮助内容。`,
     }
@@ -1089,10 +1088,7 @@ function buildUserPrompt(
 
 ${userAnswer}
 
-要求：
-1. 肯定一句（≤8字）
-2. 仅提一个推进问题（≤25字），引导进入控制设计
-3. 总回复≤60字；不得用标题/列表/Markdown；不要直接给策略示例`
+请用老师口吻：先自然肯定（8字内），再用承接短句过渡，最后提出一个具体推进问题（≤25字），避免正式或机械表达。总回复≤60字。`
     }
 
     // 🔥 新增：Stage2 使用 Stage1 因素
@@ -1110,7 +1106,11 @@ ${
     : ''
 }
 
-请针对学生的回答给予反馈，引导其完善控制逻辑。`
+要求：
+1. 用老师口吻自然肯定（≤8字）
+2. 承接一句口语化过渡
+3. 仅提一个推进问题（≤25字），聚焦控制规则
+4. 总回复≤60字；不得用标题/列表/Markdown；不要给完整方案`
     }
 
     // 原有通用处理
@@ -1125,7 +1125,10 @@ ${
     : ''
 }
 
-请根据当前阶段给予指导。`
+要求：
+1. 简短肯定（≤8字）
+2. 仅提一个推进问题（≤25字），聚焦当前阶段目标
+3. 总回复≤60字；不得用标题/列表/Markdown；不要给完整方案`
   }
 
   // 检查是否需要阶段推进提示
@@ -1430,72 +1433,46 @@ function buildEnhancedSystemPrompt(step, stage, userAnswer, context) {
   if (step === 2) {
     // 🔥 修改：根据是否有 rankedFactorsData 判断
     if (stage === 1 && context.rankedFactorsData) {
-      // Stage1 - 因素选择反馈（简短版本）
-      return `你是教室通风节能系统设计的指导老师。学生刚刚完成了影响因素的识别和排序。
+      return `${systemPrompt}
 
+学生刚刚完成了影响因素的识别与排序。
 学生选择的关键因素（前3个）：
 ${context.rankedFactorsData.keyFactors.map((f, i) => `${i + 1}. ${f.text}（${f.description}）`).join('\n')}
-
 ${context.rankedFactorsData.secondaryFactors?.length > 0 ? `次要因素：\n${context.rankedFactorsData.secondaryFactors.join('、')}` : ''}
-
 ${context.rankedFactorsData.customFactors ? `学生补充的因素：${context.rankedFactorsData.customFactors}` : ''}
 
-你的任务：
-1. 简短肯定学生的因素选择（30-50字）
-2. 指出选择的合理性（选择1-2个因素点评）
-3. 引导进入下一阶段："现在我们来设计控制策略，考虑这些因素如何影响窗户和空调的开关决策"
-
-**注意**：
-- 回复控制在100字以内
-- 不要展开详细分析，快速过渡到 Stage2
-- 语气鼓励、积极`
+【输出要求】
+- 先口语化肯定（≤8字）
+- 承接一句过渡（自然、像老师对话）
+- 仅提一个推进问题（≤25字），引导进入控制设计
+- 总回复≤60字；禁止标题/列表/Markdown；不直接给策略示例`
     }
 
     if (stage === 2 && context.stage1Factors) {
-      // Stage2 - 控制设计（使用 Stage1 的因素）
-      return `你是教室通风节能系统设计的指导老师。学生已完成因素识别，现在需要设计控制策略。
+      return `${systemPrompt}
 
-学生在阶段一识别的关键因素：
+学生已完成因素识别，现在进入控制策略设计。
+阶段一的关键因素：
 ${context.stage1Factors.keyFactors.map((f, i) => `${i + 1}. ${f.text}（${f.description}）`).join('\n')}
 
-你的任务：
-引导学生基于这些因素设计决策规则：
-1. 什么情况下开窗？什么情况下关窗？
-2. 什么情况下开空调？什么情况下关空调？
-3. 如何平衡舒适度和节能？
-
-指导原则：
-- 启发学生思考因素之间的优先级（例如：CO2浓度 vs 温度）
-- 引导设计具体的阈值（例如：温度超过28℃）
-- 鼓励考虑多种场景（例如：夏季炎热 vs 冬季寒冷）
-
-注意：
-- 不要直接给出完整方案
-- 通过问题引导学生深入思考
-- 鼓励学生提出具体的数值和条件`
+【输出要求】
+- 先口语化肯定（≤8字）
+- 承接一句过渡（自然、像老师对话）
+- 仅提一个推进问题（≤25字），聚焦控制规则
+- 总回复≤60字；禁止标题/列表/Markdown；不提供完整方案`
     }
 
     // 🔥 原有的通用 Stage1/Stage2 提示词作为兜底
     if (stage === 1) {
-      return `你是教室通风节能系统设计的指导老师。当前阶段：因素识别。
+      return `${systemPrompt}
 
-引导学生识别影响教室舒适度和能耗的关键因素，包括：
-- 环境参数（温度、湿度、CO2浓度、风速等）
-- 人为因素（学生人数、活动强度、课程时长等）
-- 设备状态（空调、窗户、风扇等）
-
-给予建设性反馈，但不要直接列出所有因素。`
+当前阶段：因素识别。给予口语化、自然的建设性反馈，避免机械表达；不要直接罗列所有因素，只提出一个推进问题。`
     }
 
     if (stage === 2) {
-      return `你是教室通风节能系统设计的指导老师。当前阶段：控制设计。
+      return `${systemPrompt}
 
-引导学生基于识别的因素设计自动控制规则：
-- 触发条件（什么情况下采取行动）
-- 执行动作（开窗/关窗、开空调/关空调）
-- 优先级处理（多个因素冲突时如何决策）
-
-鼓励学生思考具体的阈值和逻辑。`
+当前阶段：控制设计。请用老师口吻，先自然肯定，再承接一句过渡，最后提出一个具体推进问题（≤25字），聚焦控制规则；总回复≤60字；禁止标题/列表/Markdown；不提供完整方案。`
     }
   }
 
@@ -1737,7 +1714,7 @@ export default async function handler(req, res) {
       body: JSON.stringify({
         model: 'deepseek-chat',
         messages,
-        max_tokens: 150,
+        max_tokens: 80,
         temperature: 0.7,
         top_p: 0.9,
         frequency_penalty: 0.6,
@@ -1765,6 +1742,40 @@ export default async function handler(req, res) {
       if (responseMatch) {
         aiResponse = responseMatch[1].trim()
       }
+    }
+
+    function sanitizeText(t) {
+      let s = t || ''
+      s = s.replace(/```[\s\S]*?```/g, ' ')
+      s = s.replace(/^#{1,6}\s+/gm, '')
+      s = s.replace(/^[\s\t]*[-*]\s+/gm, '')
+      s = s.replace(/^\s*\d+[\.\)]\s+/gm, '')
+      s = s.replace(/\*\*/g, '')
+      s = s.replace(/__|~~/g, '')
+      s = s.replace(/\n+/g, ' ')
+      s = s.replace(/\s{2,}/g, ' ')
+      return s.trim()
+    }
+
+    function enforceStep2Constraints(t, stageNum) {
+      let s = sanitizeText(t)
+      const parts = s.split(/(?<=[。！？；.!?;])/)
+      s = parts.slice(0, 3).join('')
+      const firstQ = Math.min(
+        s.indexOf('？') === -1 ? Infinity : s.indexOf('？'),
+        s.indexOf('?') === -1 ? Infinity : s.indexOf('?'),
+      )
+      if (firstQ !== Infinity) {
+        const head = s.slice(0, firstQ + 1)
+        const tail = s.slice(firstQ + 1).replace(/[？?]/g, '。')
+        s = head + tail
+      }
+      if (s.length > 60) s = s.slice(0, 60)
+      return s
+    }
+
+    if (stepNum === 2) {
+      aiResponse = enforceStep2Constraints(aiResponse, stageNum)
     }
 
     console.log('✅ AI回复:', aiResponse)

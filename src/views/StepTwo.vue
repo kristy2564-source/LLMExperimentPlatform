@@ -788,6 +788,14 @@ interface FactorCategories {
   others: Factor[]
 }
 
+interface RankedFactorsData {
+  isRanked: boolean
+  keyFactors: Array<{ text: string; description: string }>
+  secondaryFactors: string[]
+  customFactors: string
+  totalCount: number
+}
+
 // 新增响应式数据
 const factorOptions = reactive<FactorCategories>({
   environment: [
@@ -862,6 +870,17 @@ const confirmFactorSelection = async () => {
     submittedContent += `\n【我补充的因素】\n${customFactorInput.value.trim()}`
   }
 
+  const rankedData: RankedFactorsData = {
+    isRanked: true,
+    keyFactors: keyFactors.map((f) => ({
+      text: f.label,
+      description: f.description,
+    })),
+    secondaryFactors: secondaryFactors.map((f) => f.label),
+    customFactors: customFactorInput.value.trim(),
+    totalCount: rankedFactors.value.length,
+  }
+
   // 添加用户消息
   addMessage('user', submittedContent, 1)
 
@@ -893,7 +912,7 @@ const confirmFactorSelection = async () => {
 
   try {
     // 🔥 调用 AI API（只为了获取反馈）
-    const result = await callAIAPI(submittedContent, 1)
+    const result = await callAIAPI(submittedContent, 1, rankedData)
     clearInterval(stepInterval)
 
     // 添加 AI 回复
@@ -913,16 +932,7 @@ const confirmFactorSelection = async () => {
       timestamp: new Date(),
       context: 'step2_stage1_factor_selection_ranked',
       // 🔥 新增：传递因素数据到后端
-      rankedFactorsData: {
-        isRanked: true,
-        keyFactors: keyFactors.map((f) => ({
-          text: f.label,
-          description: f.description,
-        })),
-        secondaryFactors: secondaryFactors.map((f) => f.label),
-        customFactors: customFactorInput.value.trim(),
-        totalCount: rankedFactors.value.length,
-      },
+      rankedFactorsData: rankedData,
     })
   } catch (error) {
     clearInterval(stepInterval)
@@ -1983,6 +1993,7 @@ const executeHelp = async (mode: 'refine' | 'example' | 'custom', customQuestion
 async function callAIAPI(
   answer: string,
   stage: number,
+  rankedFactorsData?: RankedFactorsData,
 ): Promise<{
   response: string
   metadata?: {
@@ -2041,6 +2052,9 @@ async function callAIAPI(
         previousUserAnswers: currentStageUserAnswers,
         needsContinuity: true,
       },
+    }
+    if (stage === 1 && rankedFactorsData) {
+      ;(payload as any).rankedFactorsData = rankedFactorsData
     }
 
     const res = await fetch('/api/ai/analyze', {
@@ -2430,6 +2444,7 @@ const saveToStorage = () => {
     simpleStorage.setItem('step2_final_answer_confirmed', {
       finalAnswerSnapshot: finalAnswerSnapshot.value,
       finalAnswerConfirmed: finalAnswerConfirmed.value,
+      sessionId: conversationData.sessionId,
       savedAt: new Date().toISOString(),
     })
   }
@@ -2626,7 +2641,7 @@ onMounted(async () => {
   if (conversationData.messages.length === 0 && !promptShown.value) {
     addMessage(
       'ai',
-      '问题识别和控制设计阶段：我们先从第一步开始，你觉得影响教室闷热与耗电的<strong>关键因素</strong>有哪些？<br />可以从环境、设备、人三个角度想想',
+      '问题识别和控制设计阶段：我们先完成第1步的<strong>选择与排序</strong>。<br />选出你认为最重要的3个因素并按重要性排序。<br />如有其他问题，可在下方与AI助手对话。',
       1,
     )
     promptShown.value = true

@@ -237,6 +237,11 @@
           <div class="card-content">
             <div class="chart-section">
               <h4>🏆 项目完成情况总览</h4>
+              <div class="evaluation-summary">
+                <p>{{ evaluationSummary.overview }}</p>
+                <p>优点：{{ evaluationSummary.advantage }}</p>
+                <p>可改进的地方：{{ evaluationSummary.disadvantage }}</p>
+              </div>
               <div class="chart-container">
                 <!-- 项目进度展示 -->
                 <div class="project-progress">
@@ -584,7 +589,7 @@
 </template>
 
 <script setup lang="ts">
-import { ref, computed, onMounted, onUnmounted, nextTick, reactive } from 'vue' // 🔥 添加 onUnmounted
+import { ref, computed, onMounted, onUnmounted, nextTick, reactive, watch } from 'vue'
 import { useRouter } from 'vue-router'
 import { simpleStorage } from '../../api/utils/simpleStorage'
 
@@ -677,6 +682,69 @@ const messages = reactive<Message[]>([])
 const chatScrollArea = ref<HTMLElement | null>(null)
 const userAnswer = ref('')
 const conversationRound = ref(1)
+interface EvaluationSummary {
+  overview: string
+  advantage: string
+  disadvantage: string
+}
+const evaluationSummary = reactive<EvaluationSummary>({
+  overview: '',
+  advantage: '',
+  disadvantage: '',
+})
+
+function computeEvaluationSummary() {
+  const grade = simpleStorage.getItem<{ letter?: string; score?: number; breakdown?: unknown }>(
+    'step6_grade',
+  )
+  const draft = simpleStorage.getItem<{ content?: string }>('step6_draft')
+  const content = draft?.content || ''
+  const hasTemp = /温度|℃|度/.test(content)
+  const hasHumidity = /湿度|湿/.test(content)
+  const hasCO2 = /CO2|二氧化碳|ppm/i.test(content)
+  const core =
+    hasTemp && hasCO2
+      ? '温度阈值与CO₂联动的通风控制'
+      : hasTemp && hasHumidity
+        ? '温湿度协同的分层控制'
+        : hasTemp
+          ? '温度阈值为核心的控制策略'
+          : '通风与设备调节的基础策略'
+  const letter = grade?.letter || ''
+  const overviewBase = `你的方案围绕${core}展开，结构清晰，可执行性较强。`
+  let advantageBase = ''
+  if (letter === 'A' || letter === 'B') {
+    advantageBase = '阈值设定明确、触发条件清晰，能覆盖典型课堂场景。'
+  } else if (letter === 'C') {
+    advantageBase = '具备可操作的规则，兼顾舒适与节能的基本需求。'
+  } else {
+    advantageBase = '核心思路明确，基础执行路径已有雏形。'
+  }
+  const lacks: string[] = []
+  if (!hasHumidity) lacks.push('湿度与体感的协同')
+  if (!hasCO2) lacks.push('CO₂与通风的联动')
+  let disadvantageBase = ''
+  if (lacks.length > 0) {
+    disadvantageBase = `未充分考虑${lacks.join('、')}，极端天气下适应性不足。`
+  } else {
+    disadvantageBase = '极端场景的边界条件与回退策略仍需细化。'
+  }
+  evaluationSummary.overview = overviewBase
+  evaluationSummary.advantage = advantageBase
+  evaluationSummary.disadvantage = disadvantageBase
+  simpleStorage.setItem('step7_evaluation_summary', {
+    overview: evaluationSummary.overview,
+    advantage: evaluationSummary.advantage,
+    disadvantage: evaluationSummary.disadvantage,
+  })
+}
+
+onMounted(() => {
+  computeEvaluationSummary()
+})
+watch(evaluationGenerated, (val) => {
+  if (val) computeEvaluationSummary()
+})
 
 // ========== 问卷题目定义 ==========
 const questions = ref([
@@ -1275,6 +1343,11 @@ const generateEvaluationFromHistory = async () => {
         sessionId: sessionId,
         reflectionAnswer: userReflection,
         experimentType: 'smart-ventilation-system',
+        overviewSummary: {
+          overview: evaluationSummary.overview,
+          advantage: evaluationSummary.advantage,
+          disadvantage: evaluationSummary.disadvantage,
+        },
       }),
     })
 
@@ -3637,6 +3710,19 @@ onUnmounted(() => {
 
 .view-report-btn .btn-icon {
   font-size: 1.3rem;
+}
+
+.evaluation-summary {
+  background: #f8fafc;
+  border: 1px solid #e2e8f0;
+  border-radius: 8px;
+  padding: 12px;
+  margin: 8px 0 16px;
+  color: #334155;
+  font-size: 0.95rem;
+}
+.evaluation-summary p {
+  margin: 0.25rem 0;
 }
 
 /* ========== 响应式设计 ========== */

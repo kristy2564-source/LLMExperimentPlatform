@@ -384,7 +384,7 @@ function generateIntelligentFallback(conversationHistory, reflectionAnswer) {
 }
 
 // 保存评估结果 - 更新元数据
-async function saveEvaluationToDB(sessionId, evaluationResult, conversationHistory) {
+async function saveEvaluationToDB(sessionId, evaluationResult, conversationHistory, overviewSummary) {
   try {
     console.log('💾 开始保存评估结果到数据库')
 
@@ -405,6 +405,7 @@ async function saveEvaluationToDB(sessionId, evaluationResult, conversationHisto
       {
         sessionId,
         evaluationResult,
+        overviewSummary: overviewSummary || null,
         conversationSummary: {
           totalConversations: conversationHistory.length,
           stepParticipation: stepStats,
@@ -458,7 +459,7 @@ export default async function handler(req, res) {
   }
 
   try {
-    const { sessionId, reflectionAnswer, experimentType } = req.body
+    const { sessionId, reflectionAnswer, experimentType, overviewSummary } = req.body
 
     console.log('📍 SessionID:', sessionId)
     console.log('📝 反思回答长度:', reflectionAnswer?.length || 0)
@@ -493,6 +494,7 @@ export default async function handler(req, res) {
     // 立即返回响应
     res.status(200).json({
       ...evaluationResult,
+      overviewSummary: overviewSummary || null,
       metadata: {
         totalConversations: conversationHistory.length,
         stepParticipation: stepStats,
@@ -505,7 +507,7 @@ export default async function handler(req, res) {
 
     // 异步保存评估结果
     setImmediate(async () => {
-      await saveEvaluationToDB(sessionId, evaluationResult, conversationHistory)
+      await saveEvaluationToDB(sessionId, evaluationResult, conversationHistory, overviewSummary)
     })
   } catch (error) {
     console.error('❌ 生成评估失败:', error)

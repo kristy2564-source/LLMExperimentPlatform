@@ -174,6 +174,27 @@
       </div>
     </div>
 
+    <Teleport to="body">
+      <transition name="fade">
+        <div v-if="showFinalConfirmDialog" class="final-confirm-overlay">
+          <div class="final-confirm-dialog">
+            <div class="dialog-header">
+              <h3>最终确认</h3>
+              <button @click="cancelFinalSubmit" class="close-btn">✕</button>
+            </div>
+            <div class="dialog-content">
+              <div class="markdown-preview" v-html="renderMarkdown(studentFinalPlan)"></div>
+              <p class="confirm-hint">提交后将立即评分，且无法修改。</p>
+            </div>
+            <div class="dialog-actions">
+              <button class="secondary-btn" @click="cancelFinalSubmit">取消</button>
+              <button class="primary-btn" @click="confirmFinalSubmit">确认提交</button>
+            </div>
+          </div>
+        </div>
+      </transition>
+    </Teleport>
+
     <!-- ==================== AI助手抽屉（简化为2个标签） ==================== -->
     <Teleport to="body">
       <transition name="slide-left">
@@ -339,7 +360,7 @@
 
 <script setup lang="ts">
 import { ref, computed, onMounted, onUnmounted, nextTick, watch } from 'vue'
-import { useRouter } from 'vue-router'
+import { useRouter, onBeforeRouteLeave } from 'vue-router'
 import { simpleStorage } from '../../api/utils/simpleStorage'
 import { marked } from 'marked'
 import { trackStep6Event } from '../../src/utils/tracking'
@@ -363,6 +384,18 @@ interface EditEvent {
   action: 'focus' | 'blur' | 'input' | 'save' | 'reset'
 }
 
+type StepMessage = {
+  id: string
+  type: 'ai' | 'user' | 'system'
+  content: string
+  timestamp: string
+  stage?: number
+  isSolution?: boolean
+  solutionVersion?: number
+  optimizationRequest?: string
+  systemType?: string
+}
+
 // ==================== 基础状态 ====================
 const router = useRouter()
 const editorTextarea = ref<HTMLTextAreaElement | null>(null)
@@ -382,6 +415,7 @@ const showDraftPreview = ref(false)
 const isFullscreen = ref(false)
 const showAIAssistant = ref(false)
 const activeAITab = ref('chat')
+const showFinalConfirmDialog = ref(false)
 
 // AI标签页配置
 const aiTabs = [
@@ -684,26 +718,20 @@ const submitFinalSolution = async () => {
     aiReferenceUsageCount: aiReferenceUsageLog.value.length,
   })
 
-  if (!confirm('确定要提交最终方案吗？提交后将无法修改。')) {
-    // 埋点 - 取消提交
-    await trackStep6Event('step6_submit_cancel', sessionId, {})
-    return
-  }
+  showFinalConfirmDialog.value = true
+}
 
-  // 埋点 - 确认提交
+const confirmFinalSubmit = async () => {
+  const sessionId = getSessionId()
   await trackStep6Event('step6_submit_confirm', sessionId, {
     wordCount: wordCount.value,
   })
-
   finalSubmitted.value = true
-
+  showFinalConfirmDialog.value = false
   try {
-    // 🔥 计算相似度（如果使用过AI参考）
     let similarityResult: SimilarityResult | null = null
     if (hasUsedAIReference.value && aiReferenceSolution.value) {
       similarityResult = analyzeSimilarity(studentFinalPlan.value, aiReferenceSolution.value)
-
-      // 埋点 - 相似度计算结果
       await trackStep6Event('step6_similarity_calculated', sessionId, {
         overallSimilarity: similarityResult.overallSimilarity,
         lexicalSimilarity: similarityResult.dimensions.lexical,
@@ -714,7 +742,6 @@ const submitFinalSolution = async () => {
         matchedKeywords: similarityResult.matchedKeywords.join(','),
       })
     }
-
     const submitResp = await submitToServer(studentFinalPlan.value, similarityResult)
     const gradeInfo = submitResp?.data?.grade
     if (gradeInfo?.letter) {
@@ -728,13 +755,11 @@ const submitFinalSolution = async () => {
         })
       } catch {}
       alert(
-        `✅ 最终方案已成功提交！\n\n系统已根据量规自动评分：\n等级：${gradeInfo.letter}\n分数：${gradeInfo.score}分\n\n即将进入下一步：自我评估与反思`,
+        `✅ 最终方案已成功提交！\n\n系统将根据量规自动评分：\n等级：${gradeInfo.letter}\n分数：${gradeInfo.score}分\n\n提交后不可修改，随后进入自我评估与反思`,
       )
     } else {
-      alert('✅ 最终方案已成功提交！\n\n即将进入下一步：自我评估与反思')
+      alert('✅ 最终方案已成功提交！\n\n提交后不可修改，随后进入自我评估与反思')
     }
-
-    // 埋点 - 提交成功
     await trackStep6Event('step6_submit_success', sessionId, {
       wordCount: wordCount.value,
       editEventsCount: editEvents.value.length,
@@ -742,7 +767,6 @@ const submitFinalSolution = async () => {
       similarityScore: similarityResult?.overallSimilarity || null,
       similarityConclusion: similarityResult?.conclusion || null,
     })
-
     setTimeout(() => {
       router.push({
         path: '/experiment/step7',
@@ -758,6 +782,12 @@ const submitFinalSolution = async () => {
     alert('提交失败，但已保存在本地')
     finalSubmitted.value = false
   }
+}
+
+const cancelFinalSubmit = async () => {
+  const sessionId = getSessionId()
+  await trackStep6Event('step6_submit_cancel', sessionId, {})
+  showFinalConfirmDialog.value = false
 }
 
 const submitToServer = async (content: string, similarityResult: SimilarityResult | null) => {
@@ -1116,6 +1146,7 @@ const addChatMessage = (type: 'user' | 'ai', content: string) => {
     timestamp: new Date(),
   })
   scrollChatToBottom()
+  saveStep6ToStorage()
 }
 
 const scrollChatToBottom = () => {
@@ -1126,6 +1157,74 @@ const scrollChatToBottom = () => {
   })
 }
 
+const saveStep6ToStorage = () => {
+  const mapped: StepMessage[] = chatMessages.value.map((m) => ({
+    id: m.id,
+    type: m.type,
+    content: m.content,
+    timestamp: m.timestamp.toISOString(),
+    stage: 1,
+  }))
+  const existing = simpleStorage.getStepData(6)
+  const solutions: StepMessage[] = (
+    ((existing?.messages || []) as unknown as StepMessage[]).filter((msg) => msg.isSolution) || []
+  ).map((s) => ({
+    id: s.id,
+    type: 'ai',
+    content: s.content,
+    timestamp: typeof s.timestamp === 'string' ? s.timestamp : new Date().toISOString(),
+    stage: s.stage ?? 1,
+    isSolution: true,
+    solutionVersion: s.solutionVersion || existing?.currentSolutionVersion || 1,
+  }))
+  const messages: StepMessage[] = [...mapped, ...solutions]
+  const count = chatMessages.value.filter((m) => m.type === 'user').length
+  simpleStorage.saveStepData(6, {
+    messages,
+    conversationCount: count,
+    currentSolutionVersion: solutionVersion.value || 0,
+  })
+}
+
+const storeSolutionMessageToStorage = () => {
+  const msg: StepMessage = {
+    id: `solution_${Date.now()}`,
+    type: 'ai',
+    content: aiReferenceSolution.value,
+    timestamp: new Date().toISOString(),
+    stage: 1,
+    isSolution: true,
+    solutionVersion: solutionVersion.value || 1,
+  }
+  const stepData = simpleStorage.getStepData(6)
+  const base = (stepData?.messages || []) as unknown as StepMessage[]
+  const nonSolution: StepMessage[] = base
+    .filter((m) => !m.isSolution)
+    .map((m) => ({
+      id: m.id,
+      type: m.type === 'user' || m.type === 'system' ? m.type : 'ai',
+      content: m.content,
+      timestamp: typeof m.timestamp === 'string' ? m.timestamp : new Date().toISOString(),
+      stage: m.stage ?? 1,
+    }))
+  const messages: StepMessage[] = [
+    ...nonSolution,
+    ...chatMessages.value.map((m) => ({
+      id: m.id,
+      type: m.type,
+      content: m.content,
+      timestamp: m.timestamp.toISOString(),
+      stage: 1,
+    })),
+    msg,
+  ]
+  const count = chatMessages.value.filter((m) => m.type === 'user').length
+  simpleStorage.saveStepData(6, {
+    messages,
+    conversationCount: count,
+    currentSolutionVersion: msg.solutionVersion,
+  })
+}
 // ==================== 参考方案 ====================
 const showRegenerateToast = ref(false)
 const generateReference = async () => {
@@ -1155,6 +1254,8 @@ const generateReference = async () => {
     solutionVersion.value = (solutionVersion.value || 0) + 1
     aiReferenceSolution.value = data.integratedSolution || data.fallbackSolution || ''
     solutionGeneratedAt.value = formatTime(new Date())
+    storeSolutionMessageToStorage()
+    saveStep6ToStorage()
   } catch (error) {
     console.error('生成失败:', error)
     alert('生成失败，请稍后重试')
@@ -1374,6 +1475,27 @@ onMounted(async () => {
     studentFinalPlan.value = ''
   }
 
+  const stepData = simpleStorage.getStepData(6)
+  if (stepData?.messages && stepData.messages.length > 0) {
+    const restored = (stepData.messages as unknown as StepMessage[])
+      .filter((m) => (m.type === 'user' || m.type === 'ai') && !m.isSolution)
+      .map((m) => ({
+        id: m.id,
+        type: m.type as 'user' | 'ai',
+        content: m.content,
+        timestamp: new Date(m.timestamp),
+      }))
+    chatMessages.value = restored
+    const lastSolution = (stepData.messages as unknown as StepMessage[])
+      .filter((m) => m.isSolution)
+      .slice(-1)[0]
+    if (lastSolution) {
+      aiReferenceSolution.value = lastSolution.content
+      solutionVersion.value = lastSolution.solutionVersion || stepData.currentSolutionVersion || 1
+      solutionGeneratedAt.value = formatTime(lastSolution.timestamp)
+    }
+  }
+
   // 记录初始内容
   contentBeforeEdit.value = studentFinalPlan.value
 
@@ -1395,6 +1517,30 @@ onUnmounted(() => {
   }
 })
 
+onBeforeRouteLeave(async (to, from, next) => {
+  const toStep = to.path.includes('/experiment/step') && !to.path.includes('/experiment/step6')
+  if (toStep && !finalSubmitted.value) {
+    const content = studentFinalPlan.value.trim()
+    const saved = simpleStorage.getItem<{ content: string }>('step6_draft')
+    const unsaved = content && (!saved || saved.content !== content)
+    if (unsaved) {
+      const ok = confirm('检测到未保存的编辑内容，是否临时保存草稿以防丢失？')
+      const sessionId = getSessionId()
+      await trackStep6Event('step6_unsaved_leave_prompt', sessionId, {
+        hasUnsaved: true,
+        wordCount: wordCount.value,
+        target: to.path,
+      })
+      if (ok) {
+        await saveDraft()
+        await trackStep6Event('step6_unsaved_leave_saved', sessionId, { target: to.path })
+      } else {
+        await trackStep6Event('step6_unsaved_leave_discard', sessionId, { target: to.path })
+      }
+    }
+  }
+  next()
+})
 // ==================== 监听器 ====================
 // 监听 AI 参考方案生成，自动计算快速相似度
 watch(aiReferenceSolution, (newValue) => {
@@ -1403,6 +1549,13 @@ watch(aiReferenceSolution, (newValue) => {
     console.log(`📊 快速相似度检测: ${quickSim}%`)
   }
 })
+watch(
+  chatMessages,
+  () => {
+    saveStep6ToStorage()
+  },
+  { deep: true },
+)
 </script>
 
 <style scoped>
@@ -1763,6 +1916,57 @@ watch(aiReferenceSolution, (newValue) => {
   padding: 24px;
 }
 
+.final-confirm-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.45);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 10000;
+}
+.final-confirm-dialog {
+  width: 840px;
+  max-height: 80vh;
+  background: #fff;
+  border-radius: 12px;
+  box-shadow: 0 10px 30px rgba(0, 0, 0, 0.2);
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+.final-confirm-dialog .dialog-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 14px 16px;
+  border-bottom: 1px solid #eee;
+}
+.final-confirm-dialog .dialog-content {
+  padding: 16px;
+  overflow: auto;
+}
+.final-confirm-dialog .markdown-preview {
+  background: #fafafa;
+  border: 1px solid #eee;
+  border-radius: 8px;
+  padding: 12px;
+  margin-bottom: 12px;
+}
+.final-confirm-dialog .confirm-hint {
+  color: #ef4444;
+  font-size: 1.25rem;
+}
+.final-confirm-dialog .dialog-header h3 {
+  font-size: 1.25rem;
+}
+.final-confirm-dialog .dialog-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 12px;
+  padding: 12px 16px;
+  border-top: 1px solid #eee;
+}
 .editor-container {
   height: 100%;
   display: flex;

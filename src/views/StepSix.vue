@@ -715,7 +715,24 @@ const submitFinalSolution = async () => {
       })
     }
 
-    await submitToServer(studentFinalPlan.value, similarityResult)
+    const submitResp = await submitToServer(studentFinalPlan.value, similarityResult)
+    const gradeInfo = submitResp?.data?.grade
+    if (gradeInfo?.letter) {
+      try {
+        simpleStorage.setItem('step6_grade', {
+          letter: gradeInfo.letter,
+          score: gradeInfo.score,
+          breakdown: gradeInfo.breakdown,
+          rubricVersion: gradeInfo.rubricVersion,
+          submittedAt: new Date().toISOString(),
+        })
+      } catch {}
+      alert(
+        `✅ 最终方案已成功提交！\n\n系统已根据量规自动评分：\n等级：${gradeInfo.letter}\n分数：${gradeInfo.score}分\n\n即将进入下一步：自我评估与反思`,
+      )
+    } else {
+      alert('✅ 最终方案已成功提交！\n\n即将进入下一步：自我评估与反思')
+    }
 
     // 埋点 - 提交成功
     await trackStep6Event('step6_submit_success', sessionId, {
@@ -725,8 +742,6 @@ const submitFinalSolution = async () => {
       similarityScore: similarityResult?.overallSimilarity || null,
       similarityConclusion: similarityResult?.conclusion || null,
     })
-
-    alert('✅ 最终方案已成功提交！\n\n即将进入下一步：自我评估与反思')
 
     setTimeout(() => {
       router.push({

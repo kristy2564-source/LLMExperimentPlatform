@@ -315,6 +315,127 @@
         </div>
       </div>
     </div>
+    <!-- 🔥 新增：评价量规模态框 -->
+    <div v-if="showRubricModal" class="modal-overlay" @click="closeRubricModal">
+      <div class="rubric-modal" @click.stop>
+        <div class="modal-header">
+          <h3>📋 方案评价量规</h3>
+          <button class="close-button" @click="closeRubricModal">×</button>
+        </div>
+
+        <!-- 可滚动内容容器 -->
+        <div class="modal-content-scroll">
+          <div class="modal-content">
+            <!-- 提示说明 -->
+            <div class="rubric-intro">
+              <div class="intro-icon">💡</div>
+              <div class="intro-text">
+                <strong>这是你最终方案的评价标准</strong>
+                <p>
+                  在完成所有步骤后，你的方案将按照以下标准进行评价。建议在设计方案时参考这些标准。
+                </p>
+              </div>
+            </div>
+
+            <!-- 评价维度1 -->
+            <div class="rubric-dimension dimension-1">
+              <div class="dimension-header">
+                <div class="dimension-title">
+                  <span class="dimension-icon">📝</span>
+                  <span>评价维度1：方案基本结构</span>
+                </div>
+                <div class="dimension-score">40分</div>
+              </div>
+              <div class="dimension-items">
+                <div class="rubric-item">
+                  <div class="item-header">
+                    <span class="item-title">说明要解决什么问题</span>
+                    <span class="item-score">5分</span>
+                  </div>
+                  <div class="item-desc">能说清楚要解决的核心问题</div>
+                </div>
+                <div class="rubric-item">
+                  <div class="item-header">
+                    <span class="item-title">提出具体控制策略</span>
+                    <span class="item-score">20分</span>
+                  </div>
+                  <div class="item-desc">有明确做法，而不是一句话</div>
+                </div>
+                <div class="rubric-item">
+                  <div class="item-header">
+                    <span class="item-title">考虑特殊情况</span>
+                    <span class="item-score">15分</span>
+                  </div>
+                  <div class="item-desc">能想到不同情境下的调整</div>
+                </div>
+              </div>
+            </div>
+
+            <!-- 评价维度2 -->
+            <div class="rubric-dimension dimension-2">
+              <div class="dimension-header">
+                <div class="dimension-title">
+                  <span class="dimension-icon">⚙️</span>
+                  <span>评价维度2：方案合理性与可行性</span>
+                </div>
+                <div class="dimension-score">40分</div>
+              </div>
+              <div class="dimension-items">
+                <div class="rubric-item">
+                  <div class="item-header">
+                    <span class="item-title">控制逻辑合理</span>
+                    <span class="item-score">20分</span>
+                  </div>
+                  <div class="item-desc">因果关系正确，有判断条件</div>
+                </div>
+                <div class="rubric-item">
+                  <div class="item-header">
+                    <span class="item-title">方案可行</span>
+                    <span class="item-score">20分</span>
+                  </div>
+                  <div class="item-desc">能在现实中操作</div>
+                </div>
+              </div>
+            </div>
+
+            <!-- 评价维度3 -->
+            <div class="rubric-dimension dimension-3">
+              <div class="dimension-header">
+                <div class="dimension-title">
+                  <span class="dimension-icon">🎯</span>
+                  <span>评价维度3：思考深度</span>
+                </div>
+                <div class="dimension-score">20分</div>
+              </div>
+              <div class="dimension-items">
+                <div class="rubric-item">
+                  <div class="item-header">
+                    <span class="item-title">有自己的思考</span>
+                    <span class="item-score">10分</span>
+                  </div>
+                  <div class="item-desc">不只是照搬建议</div>
+                </div>
+                <div class="rubric-item">
+                  <div class="item-header">
+                    <span class="item-title">能说明理由</span>
+                    <span class="item-score">10分</span>
+                  </div>
+                  <div class="item-desc">能解释"为什么"</div>
+                </div>
+              </div>
+            </div>
+
+            <!-- 总分提示 -->
+            <div class="rubric-total">
+              <div class="total-badge">
+                <span class="total-icon">✨</span>
+                <span class="total-text">总分：100分</span>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
   </div>
 </template>
 
@@ -372,12 +493,16 @@ const learningObjectives = reactive([
 ])
 
 const tools = reactive<Tool[]>([
+  { title: '📊 方案评价量规', description: '查看最终方案的评价标准' },
   { title: '💳 信息卡片', description: '查看教室结构图和环境数据' },
   { title: '💬 我想提问', description: '遇到困难时获得启发引导' },
 ])
 
 // 添加工具点击处理相关状态
 const showInfoModal = ref(false)
+
+// 🔥 新增：评价量规模态框状态
+const showRubricModal = ref(false)
 
 // 计算属性：根据当前步骤显示对应的步骤
 const visibleSteps = computed(() => {
@@ -386,12 +511,19 @@ const visibleSteps = computed(() => {
 
 // 工具点击处理函数
 const handleToolClick = (tool: Tool) => {
-  if (tool.title.includes('信息卡片')) {
+  if (tool.title.includes('方案评价量规')) {
+    // 🔥 新增：打开评价量规
+    showRubricModal.value = true
+  } else if (tool.title.includes('信息卡片')) {
     showInfoModal.value = true
   } else if (tool.title.includes('我想提问')) {
-    // 显示提示信息
     showHelpTip()
   }
+}
+
+// 🔥 新增：关闭评价量规模态框
+const closeRubricModal = () => {
+  showRubricModal.value = false
 }
 
 // 显示帮助提示
@@ -1469,5 +1601,229 @@ watch(
 .panel-section:first-child .current-task {
   flex: 1;
   justify-content: center;
+}
+
+/* 🔥 新增：评价量规模态框样式 */
+.rubric-modal {
+  background: white;
+  border-radius: 20px;
+  max-width: 750px;
+  width: 90%;
+  max-height: 85vh;
+  box-shadow: 0 20px 40px rgba(0, 0, 0, 0.2);
+  animation: slideUp 0.3s ease-out;
+  display: flex;
+  flex-direction: column;
+}
+
+.rubric-intro {
+  display: flex;
+  align-items: flex-start;
+  gap: 1rem;
+  background: linear-gradient(135deg, #e0f2fe 0%, #bae6fd 100%);
+  border: 2px solid #0ea5e9;
+  border-radius: 12px;
+  padding: 1.25rem;
+  margin-bottom: 1.5rem;
+}
+
+.intro-icon {
+  font-size: 2rem;
+  flex-shrink: 0;
+}
+
+.intro-text {
+  flex: 1;
+}
+
+.intro-text strong {
+  color: #0369a1;
+  font-size: 1.05rem;
+  display: block;
+  margin-bottom: 0.5rem;
+}
+
+.intro-text p {
+  margin: 0;
+  color: #075985;
+  font-size: 0.9rem;
+  line-height: 1.5;
+}
+
+.rubric-dimension {
+  border-radius: 12px;
+  padding: 1.25rem;
+  margin-bottom: 1.25rem;
+  background: #f8f9fa;
+  transition: all 0.3s ease;
+}
+
+.rubric-dimension:hover {
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
+  transform: translateY(-2px);
+}
+
+.rubric-dimension.dimension-1 {
+  border-left: 5px solid #3b82f6;
+}
+
+.rubric-dimension.dimension-2 {
+  border-left: 5px solid #10b981;
+}
+
+.rubric-dimension.dimension-3 {
+  border-left: 5px solid #f59e0b;
+}
+
+.dimension-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 1rem;
+  padding-bottom: 0.75rem;
+  border-bottom: 2px solid #e5e7eb;
+}
+
+.dimension-title {
+  display: flex;
+  align-items: center;
+  gap: 0.625rem;
+  font-size: 1.05rem;
+  font-weight: 600;
+  color: #1f2937;
+}
+
+.dimension-icon {
+  font-size: 1.25rem;
+}
+
+.dimension-score {
+  font-size: 1.25rem;
+  font-weight: 700;
+  color: #dc2626;
+  background: #fee2e2;
+  padding: 0.375rem 0.875rem;
+  border-radius: 20px;
+}
+
+.dimension-items {
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+}
+
+.rubric-item {
+  background: white;
+  padding: 1rem;
+  border-radius: 8px;
+  border: 1.5px solid #e5e7eb;
+  transition: all 0.2s ease;
+}
+
+.rubric-item:hover {
+  border-color: #3b82f6;
+  background: #eff6ff;
+  transform: translateX(4px);
+}
+
+.item-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 0.5rem;
+}
+
+.item-title {
+  font-size: 0.95rem;
+  font-weight: 600;
+  color: #1f2937;
+}
+
+.item-score {
+  font-size: 1rem;
+  font-weight: 600;
+  color: #dc2626;
+  background: #fee2e2;
+  padding: 0.25rem 0.625rem;
+  border-radius: 12px;
+}
+
+.item-desc {
+  font-size: 0.875rem;
+  color: #4b5563;
+  line-height: 1.6;
+  padding-left: 0.625rem;
+  border-left: 3px solid #d1d5db;
+}
+
+.rubric-total {
+  text-align: center;
+  padding-top: 1.25rem;
+  margin-top: 1.25rem;
+  border-top: 2px dashed #d1d5db;
+}
+
+.total-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.625rem;
+  background: linear-gradient(135deg, #10b981 0%, #059669 100%);
+  color: white;
+  padding: 0.875rem 2rem;
+  border-radius: 25px;
+  font-size: 1.125rem;
+  font-weight: 600;
+  box-shadow: 0 4px 12px rgba(16, 185, 129, 0.3);
+}
+
+.total-icon {
+  font-size: 1.25rem;
+}
+
+.total-text {
+  font-size: 1.125rem;
+}
+
+/* 响应式调整 */
+@media (max-width: 768px) {
+  .rubric-modal {
+    width: 95%;
+    max-height: 90vh;
+  }
+
+  .rubric-intro {
+    flex-direction: column;
+    padding: 1rem;
+  }
+
+  .intro-icon {
+    font-size: 1.5rem;
+  }
+
+  .dimension-header {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 0.5rem;
+  }
+
+  .dimension-title {
+    font-size: 0.95rem;
+  }
+
+  .dimension-score {
+    font-size: 1.05rem;
+    padding: 0.25rem 0.625rem;
+  }
+
+  .item-header {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 0.375rem;
+  }
+
+  .total-badge {
+    padding: 0.625rem 1.5rem;
+    font-size: 1rem;
+  }
 }
 </style>

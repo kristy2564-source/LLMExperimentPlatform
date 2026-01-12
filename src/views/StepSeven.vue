@@ -237,10 +237,60 @@
           <div class="card-content">
             <div class="chart-section">
               <h4>🏆 项目完成情况总览</h4>
+              <div class="grade-card" v-if="gradeData.letter">
+                <div class="grade-badge" :class="`grade-${gradeData.letter}`">
+                  <div class="badge-icon">🎖️</div>
+                  <div class="badge-info">
+                    <div class="grade-letter">{{ gradeData.letter }}</div>
+                    <div class="grade-score">{{ gradeData.score }} 分</div>
+                    <div class="grade-version">量规：{{ gradeData.rubricVersion }}</div>
+                  </div>
+                </div>
+                <div class="rubric-grid">
+                  <div class="rubric-dimension" v-for="dim in rubricDisplay" :key="dim.key">
+                    <div class="dimension-header">
+                      <span class="dimension-name">{{ dim.name }}</span>
+                      <span class="dimension-score">{{ dim.score }} 分</span>
+                    </div>
+                    <div class="dimension-items">
+                      <div class="rubric-item" v-for="item in dim.items" :key="item.key">
+                        <span class="item-name">{{ item.name }}</span>
+                        <div class="item-bar">
+                          <div class="item-fill" :style="{ width: `${item.percent}%` }"></div>
+                        </div>
+                        <span class="item-score">{{ item.score }}/{{ item.max }}</span>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              </div>
               <div class="evaluation-summary">
-                <p>{{ evaluationSummary.overview }}</p>
-                <p>优点：{{ evaluationSummary.advantage }}</p>
-                <p>可改进的地方：{{ evaluationSummary.disadvantage }}</p>
+                <div class="summary-header">
+                  <div class="summary-icon">🧩</div>
+                  <div class="summary-title">方案评价摘要</div>
+                </div>
+                <div class="summary-body">
+                  <div class="summary-overview">
+                    <span class="summary-label">综述</span>
+                    <div class="summary-text">{{ evaluationSummary.overview }}</div>
+                  </div>
+                  <div class="summary-grid">
+                    <div class="summary-item positive">
+                      <div class="item-header">
+                        <span class="item-icon">✅</span>
+                        <span class="item-title">优点</span>
+                      </div>
+                      <div class="item-content">{{ evaluationSummary.advantage }}</div>
+                    </div>
+                    <div class="summary-item negative">
+                      <div class="item-header">
+                        <span class="item-icon">🛠️</span>
+                        <span class="item-title">可改进</span>
+                      </div>
+                      <div class="item-content">{{ evaluationSummary.disadvantage }}</div>
+                    </div>
+                  </div>
+                </div>
               </div>
               <div class="chart-container">
                 <!-- 项目进度展示 -->
@@ -682,6 +732,97 @@ const messages = reactive<Message[]>([])
 const chatScrollArea = ref<HTMLElement | null>(null)
 const userAnswer = ref('')
 const conversationRound = ref(1)
+interface RubricItems1 {
+  problemClarity: number
+  specificStrategy: number
+  specialCases: number
+}
+interface RubricItems2 {
+  logicalConsistency: number
+  feasibility: number
+}
+interface RubricItems3 {
+  ownThinking: number
+  reasonExplanation: number
+}
+interface DimensionBreakdown<T> {
+  score: number
+  items: T
+}
+interface GradeBreakdown {
+  dimension1: DimensionBreakdown<RubricItems1>
+  dimension2: DimensionBreakdown<RubricItems2>
+  dimension3: DimensionBreakdown<RubricItems3>
+}
+const gradeData = reactive({
+  letter: '',
+  score: 0,
+  rubricVersion: '',
+  breakdown: null as GradeBreakdown | null,
+})
+const rubricDisplay = computed(() => {
+  const defaultBd: GradeBreakdown = {
+    dimension1: { score: 0, items: { problemClarity: 0, specificStrategy: 0, specialCases: 0 } },
+    dimension2: { score: 0, items: { logicalConsistency: 0, feasibility: 0 } },
+    dimension3: { score: 0, items: { ownThinking: 0, reasonExplanation: 0 } },
+  }
+  const bd = gradeData.breakdown ?? defaultBd
+  const dim1 = bd.dimension1
+  const dim2 = bd.dimension2
+  const dim3 = bd.dimension3
+  const i1 = dim1.items
+  const i2 = dim2.items
+  const i3 = dim3.items
+  const mapItem = (key: string, name: string, score: number, max: number) => ({
+    key,
+    name,
+    score: score || 0,
+    max,
+    percent: Math.min(100, Math.round(((score || 0) / max) * 100)),
+  })
+  return [
+    {
+      key: 'dimension1',
+      name: '维度一：问题识别与整合',
+      score: dim1.score || 0,
+      items: [
+        mapItem('problemClarity', '问题表述与目标', i1.problemClarity || 0, 5),
+        mapItem('specificStrategy', '具体策略与阈值', i1.specificStrategy || 0, 20),
+        mapItem('specialCases', '特殊情境覆盖', i1.specialCases || 0, 15),
+      ],
+    },
+    {
+      key: 'dimension2',
+      name: '维度二：逻辑与可行性',
+      score: dim2.score || 0,
+      items: [
+        mapItem('logicalConsistency', '逻辑一致性与范围', i2.logicalConsistency || 0, 20),
+        mapItem('feasibility', '实施与可行性', i2.feasibility || 0, 20),
+      ],
+    },
+    {
+      key: 'dimension3',
+      name: '维度三：思考深度',
+      score: dim3.score || 0,
+      items: [
+        mapItem('ownThinking', '自主思考表达', i3.ownThinking || 0, 10),
+        mapItem('reasonExplanation', '理由与论证', i3.reasonExplanation || 0, 10),
+      ],
+    },
+  ]
+})
+function computeGradeData() {
+  const grade = simpleStorage.getItem<{
+    letter?: string
+    score?: number
+    breakdown?: GradeBreakdown
+    rubricVersion?: string
+  }>('step6_grade')
+  gradeData.letter = grade?.letter || ''
+  gradeData.score = grade?.score || 0
+  gradeData.breakdown = grade?.breakdown ?? null
+  gradeData.rubricVersion = grade?.rubricVersion || ''
+}
 interface EvaluationSummary {
   overview: string
   advantage: string
@@ -741,9 +882,13 @@ function computeEvaluationSummary() {
 
 onMounted(() => {
   computeEvaluationSummary()
+  computeGradeData()
 })
 watch(evaluationGenerated, (val) => {
-  if (val) computeEvaluationSummary()
+  if (val) {
+    computeEvaluationSummary()
+    computeGradeData()
+  }
 })
 
 // ========== 问卷题目定义 ==========
@@ -3712,17 +3857,207 @@ onUnmounted(() => {
   font-size: 1.3rem;
 }
 
-.evaluation-summary {
+.grade-card {
+  background: #ffffff;
+  border: 2px solid #e2e8f0;
+  border-radius: 16px;
+  padding: 16px;
+  margin: 8px 0 16px;
+  box-shadow: 0 4px 18px rgba(0, 0, 0, 0.06);
+}
+.grade-badge {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 12px;
+  border-radius: 12px;
+  margin-bottom: 12px;
+  color: #fff;
+}
+.grade-badge .badge-icon {
+  font-size: 1.5rem;
+}
+.grade-badge .badge-info {
+  display: flex;
+  align-items: baseline;
+  gap: 12px;
+}
+.grade-letter {
+  font-size: 1.5rem;
+  font-weight: 800;
+}
+.grade-score {
+  font-size: 1.1rem;
+  font-weight: 700;
+}
+.grade-version {
+  font-size: 0.9rem;
+  opacity: 0.9;
+}
+.grade-A {
+  background: linear-gradient(135deg, #10b981, #059669);
+}
+.grade-B {
+  background: linear-gradient(135deg, #3b82f6, #1d4ed8);
+}
+.grade-C {
+  background: linear-gradient(135deg, #f59e0b, #d97706);
+}
+.grade-D {
+  background: linear-gradient(135deg, #ef4444, #b91c1c);
+}
+.rubric-grid {
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: 12px;
+}
+.rubric-dimension {
   background: #f8fafc;
   border: 1px solid #e2e8f0;
-  border-radius: 8px;
+  border-radius: 12px;
   padding: 12px;
+}
+.dimension-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 8px;
+}
+.dimension-name {
+  font-size: 1rem;
+  font-weight: 700;
+  color: #334155;
+}
+.dimension-score {
+  font-size: 0.95rem;
+  font-weight: 700;
+  color: #667eea;
+}
+.dimension-items {
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: 8px;
+}
+.rubric-item {
+  display: grid;
+  grid-template-columns: 140px 1fr 80px;
+  align-items: center;
+  gap: 8px;
+}
+.item-name {
+  font-size: 0.9rem;
+  color: #475569;
+  font-weight: 600;
+}
+.item-bar {
+  height: 8px;
+  background: #e2e8f0;
+  border-radius: 6px;
+  overflow: hidden;
+}
+.item-fill {
+  height: 100%;
+  background: linear-gradient(90deg, #667eea, #764ba2);
+  border-radius: 6px;
+}
+.item-score {
+  font-size: 0.85rem;
+  color: #64748b;
+  text-align: right;
+}
+
+.evaluation-summary {
+  background: #ffffff;
+  border: 2px solid #e2e8f0;
+  border-radius: 16px;
+  padding: 16px;
   margin: 8px 0 16px;
   color: #334155;
-  font-size: 0.95rem;
+  box-shadow: 0 4px 18px rgba(0, 0, 0, 0.06);
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
 }
-.evaluation-summary p {
-  margin: 0.25rem 0;
+.summary-header {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 12px;
+  background: #f8fafc;
+  border: 1px solid #e2e8f0;
+  border-radius: 12px;
+}
+.summary-icon {
+  font-size: 1.25rem;
+}
+.summary-title {
+  font-size: 1rem;
+  font-weight: 700;
+  color: #1f2937;
+}
+.summary-body {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+.summary-overview {
+  background: #f8fafc;
+  border: 1px solid #e2e8f0;
+  border-radius: 12px;
+  padding: 12px;
+}
+.summary-label {
+  display: inline-block;
+  font-size: 0.85rem;
+  font-weight: 700;
+  color: #475569;
+  margin-bottom: 6px;
+}
+.summary-text {
+  font-size: 0.95rem;
+  color: #334155;
+}
+.summary-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 12px;
+}
+.summary-item {
+  background: #f8fafc;
+  border: 1px solid #e2e8f0;
+  border-radius: 12px;
+  padding: 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.summary-item .item-header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.summary-item .item-icon {
+  font-size: 1.1rem;
+}
+.summary-item .item-title {
+  font-size: 0.95rem;
+  font-weight: 700;
+  color: #1f2937;
+}
+.summary-item .item-content {
+  font-size: 0.95rem;
+  color: #334155;
+}
+.summary-item.positive {
+  border-color: #10b981;
+}
+.summary-item.negative {
+  border-color: #f59e0b;
+}
+@media (max-width: 768px) {
+  .summary-grid {
+    grid-template-columns: 1fr;
+  }
 }
 
 /* ========== 响应式设计 ========== */

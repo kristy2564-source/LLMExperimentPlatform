@@ -507,6 +507,87 @@
             <p class="tip">学生需完成自我反思后，系统才会生成AI能力评估报告。</p>
           </div>
         </div>
+        <div v-show="activeTab === 'operations'" class="tab-content">
+          <div class="conversations-section">
+            <div class="section-header">
+              <h3 class="section-title">操作记录</h3>
+              <p class="section-desc">展示点击事件与聊天发送的操作摘要</p>
+            </div>
+            <div v-if="studentData?.operationSummary" class="stats-grid">
+              <div class="stats-card">
+                <div class="stats-icon">🖱️</div>
+                <div class="stats-info">
+                  <div class="stats-label">总点击次数</div>
+                  <div class="stats-value">
+                    {{ studentData.operationSummary.totalClicks }}
+                  </div>
+                </div>
+              </div>
+              <div class="stats-card">
+                <div class="stats-icon">💬</div>
+                <div class="stats-info">
+                  <div class="stats-label">总聊天发送</div>
+                  <div class="stats-value">
+                    {{ studentData.operationSummary.totalChats }}
+                  </div>
+                </div>
+              </div>
+              <div class="stats-card">
+                <div class="stats-icon">🧩</div>
+                <div class="stats-info">
+                  <div class="stats-label">Step6 点击</div>
+                  <div class="stats-value">{{ studentData.operationSummary.step6.clicks }}</div>
+                </div>
+              </div>
+              <div class="stats-card">
+                <div class="stats-icon">🧩</div>
+                <div class="stats-info">
+                  <div class="stats-label">Step6 聊天</div>
+                  <div class="stats-value">{{ studentData.operationSummary.step6.chats }}</div>
+                </div>
+              </div>
+            </div>
+            <div
+              v-if="studentData?.operationSummary && !studentData.operationSummary.hasClicks"
+              class="empty-conversations"
+            >
+              <p>该学生无点击操作</p>
+            </div>
+            <div class="conversation-list">
+              <div
+                class="conversation-item"
+                v-for="step in [1, 2, 3, 4, 5, 6, 7]"
+                :key="'ops_' + step"
+              >
+                <div class="conversation-header">
+                  <span class="conversation-index">Step {{ step }} - 操作记录</span>
+                  <div class="conversation-meta">
+                    <span class="meta-item">点击：{{ getStepClicks(step) }}</span>
+                    <span class="meta-item">聊天：{{ getStepChats(step) }}</span>
+                  </div>
+                  <button class="toggle-button" @click="toggleStepExpand(step)">
+                    {{ expandedSteps[step] ? '收起' : '展开' }}
+                  </button>
+                </div>
+                <div v-if="expandedSteps[step]">
+                  <div v-if="getStepEvents(step).length > 0">
+                    <div
+                      class="message ai-message"
+                      v-for="(ev, idx) in getStepEvents(step)"
+                      :key="'ev_' + step + '_' + idx"
+                    >
+                      <div class="message-label">{{ getEventLabel(ev.name) }}</div>
+                      <div class="message-content">{{ formatTime(ev.timestamp as string) }}</div>
+                    </div>
+                  </div>
+                  <div v-else class="empty-conversations">
+                    <p>Step {{ step }} 无操作</p>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
       </div>
     </div>
 
@@ -683,6 +764,17 @@ interface StudentData {
   questionnaireData: QuestionnaireData | null
   evaluationData: EvaluationData | null // 新增
   rawConversations?: ConversationMessage[]
+  eventsByStep?: Record<
+    number,
+    { name: string; timestamp: string; stage?: number; data?: Record<string, unknown> }[]
+  >
+  operationSummary?: {
+    totalClicks: number
+    totalChats: number
+    hasClicks: boolean
+    hasChats: boolean
+    step6: { clicks: number; chats: number }
+  }
 }
 
 // 能力评估相关接口
@@ -735,7 +827,8 @@ const tabs = [
   { key: 'behavior', label: '行为数据', icon: '📊' },
   { key: 'answers', label: '最终答案', icon: '✍️' },
   { key: 'questionnaire', label: '问卷结果', icon: '📋' },
-  { key: 'evaluation', label: '能力评估', icon: '🎯' }, // 🔥 新增
+  { key: 'evaluation', label: '能力评估', icon: '🎯' },
+  { key: 'operations', label: '操作记录', icon: '🖱️' },
 ]
 
 // 计算属性
@@ -854,6 +947,90 @@ const getHelpTypeLabel = (type: string) => {
     custom: '自定义',
   }
   return labels[type] || type
+}
+
+const isClickEvent = (name: string) => {
+  const keywords = [
+    '_click',
+    'open',
+    'close',
+    'toggle',
+    'copy',
+    'insert',
+    'save',
+    'attempt',
+    'confirm',
+    'cancel',
+    'restore',
+    'unsaved',
+    'draft',
+    'fullscreen',
+    'guidance',
+    'drawer',
+    'tab_switch',
+    'reference',
+    'editor_clear',
+    'collapse',
+    'expand',
+    'next_step',
+    'confirm_dialog',
+    'help_button',
+  ]
+  if (!name) return false
+  if (name.includes('chat_send') || name.includes('chat_receive')) return false
+  return keywords.some((kw) => name.includes(kw))
+}
+
+const getEventLabel = (name: string) => {
+  const map: Record<string, string> = {
+    step6_ai_drawer_open: '打开 AI 助手',
+    step6_ai_drawer_close: '关闭 AI 助手',
+    step6_ai_tab_switch: '切换 AI 标签',
+    step6_reference_generate: '生成参考方案',
+    step6_reference_regenerate: '重新生成参考方案',
+    step6_reference_copy: '复制参考方案',
+    step6_reference_insert: '插入参考方案',
+    step6_draft_save: '保存草稿',
+    step6_fullscreen_toggle: '切换全屏',
+    step6_draft_preview_toggle: '切换初稿预览',
+    step6_submit_attempt: '尝试提交',
+    step6_submit_confirm: '确认提交',
+    step6_submit_cancel: '取消提交',
+    step6_unsaved_leave_prompt: '未保存离开提示',
+    step6_unsaved_leave_saved: '离开前保存草稿',
+    step6_unsaved_leave_discard: '离开前不保存',
+    step6_chat_send: '聊天发送',
+  }
+  return map[name] || name
+}
+
+const expandedSteps = ref<Record<number, boolean>>({
+  1: false,
+  2: false,
+  3: false,
+  4: false,
+  5: false,
+  6: true,
+  7: false,
+})
+
+const getStepEvents = (step: number) => {
+  const byStep = studentData.value?.eventsByStep || {}
+  return byStep[step] || []
+}
+
+const getStepClicks = (step: number) => {
+  return getStepEvents(step).filter((e) => isClickEvent(e.name)).length
+}
+
+const getStepChats = (step: number) => {
+  return getStepEvents(step).filter(
+    (e) => typeof e.name === 'string' && e.name.includes('chat_send'),
+  ).length
+}
+
+const toggleStepExpand = (step: number) => {
+  expandedSteps.value[step] = !expandedSteps.value[step]
 }
 
 const formatTime = (timestamp: string) => {
@@ -1233,6 +1410,33 @@ onMounted(() => {
   font-weight: 700;
   color: #3b82f6;
   font-size: 0.875rem;
+}
+
+.conversation-meta {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.75rem;
+  margin-left: auto;
+}
+
+.meta-item {
+  font-size: 0.875rem;
+  color: #64748b;
+}
+
+.toggle-button {
+  padding: 0.375rem 0.75rem;
+  background: #f8fafc;
+  border: 1px solid #e2e8f0;
+  border-radius: 6px;
+  cursor: pointer;
+  font-size: 0.875rem;
+  color: #334155;
+}
+
+.toggle-button:hover {
+  background: #f1f5f9;
+  border-color: #cbd5e1;
 }
 
 .conversation-time {

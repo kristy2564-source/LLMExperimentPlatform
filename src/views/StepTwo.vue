@@ -236,7 +236,12 @@
                     class="factor-option"
                     :class="{ selected: factor.selected }"
                   >
-                    <input type="checkbox" v-model="factor.selected" class="factor-checkbox" />
+                    <input
+                      type="checkbox"
+                      v-model="factor.selected"
+                      class="factor-checkbox"
+                      @change="onFactorToggle('environment', factor)"
+                    />
                     <div class="factor-content">
                       <span class="factor-label">{{ factor.label }}</span>
                       <span class="factor-desc" v-if="factor.description">{{
@@ -261,7 +266,12 @@
                     class="factor-option"
                     :class="{ selected: factor.selected }"
                   >
-                    <input type="checkbox" v-model="factor.selected" class="factor-checkbox" />
+                    <input
+                      type="checkbox"
+                      v-model="factor.selected"
+                      class="factor-checkbox"
+                      @change="onFactorToggle('people', factor)"
+                    />
                     <div class="factor-content">
                       <span class="factor-label">{{ factor.label }}</span>
                       <span class="factor-desc" v-if="factor.description">{{
@@ -286,7 +296,12 @@
                     class="factor-option"
                     :class="{ selected: factor.selected }"
                   >
-                    <input type="checkbox" v-model="factor.selected" class="factor-checkbox" />
+                    <input
+                      type="checkbox"
+                      v-model="factor.selected"
+                      class="factor-checkbox"
+                      @change="onFactorToggle('equipment', factor)"
+                    />
                     <div class="factor-content">
                       <span class="factor-label">{{ factor.label }}</span>
                       <span class="factor-desc" v-if="factor.description">{{
@@ -311,7 +326,12 @@
                     class="factor-option"
                     :class="{ selected: factor.selected }"
                   >
-                    <input type="checkbox" v-model="factor.selected" class="factor-checkbox" />
+                    <input
+                      type="checkbox"
+                      v-model="factor.selected"
+                      class="factor-checkbox"
+                      @change="onFactorToggle('others', factor)"
+                    />
                     <div class="factor-content">
                       <span class="factor-label">{{ factor.label }}</span>
                       <span class="factor-desc" v-if="factor.description">{{
@@ -841,6 +861,22 @@ const canProceedToRank = computed(() => {
   return selectedCount.value >= 3 && selectedCount.value <= MAX_SELECTION
 })
 
+const onFactorToggle = async (category: string, factor: Factor) => {
+  await trackStep2Event(
+    'step2_factor_toggle',
+    conversationData.sessionId,
+    1,
+    conversationData.conversationCount,
+    {
+      category,
+      factorId: factor.id,
+      label: factor.label,
+      selected: factor.selected,
+      selectedCount: selectedCount.value,
+    },
+  )
+}
+
 // ==================== 🔥 新增：确认选择函数 ====================
 
 const confirmFactorSelection = async () => {
@@ -917,6 +953,15 @@ const confirmFactorSelection = async () => {
 
     // 添加 AI 回复
     addMessage('ai', result.response, 1)
+    await trackStep2Event(
+      'step2_ai_response',
+      conversationData.sessionId,
+      1,
+      conversationData.conversationCount,
+      {
+        responseLength: result.response.length,
+      },
+    )
 
     // 🔥 核心修改：直接完成 Stage1 并推进到 Stage2
     await completeStage1AndAdvanceToStage2()
@@ -976,6 +1021,17 @@ const completeStage1AndAdvanceToStage2 = async () => {
   setTimeout(() => {
     // 更新到 Stage2
     simpleStorage.updateCurrentStage(2, 2)
+    trackStep2Event(
+      'step2_stage_change',
+      conversationData.sessionId,
+      2,
+      conversationData.conversationCount,
+      {
+        fromStage: 1,
+        toStage: 2,
+        reason: 'factor_selection_ranked',
+      },
+    )
 
     // 重新加载数据
     const newData = simpleStorage.getStep2Data()
@@ -1033,17 +1089,6 @@ interface Step2Data {
   finalAnswerSnapshot?: string
   finalAnswerConfirmed?: boolean
   lockedAt?: string // 🔥 新增
-}
-
-interface ConversationData {
-  sessionId: string
-  step: number
-  stage: number
-  userInput: string
-  aiResponse: string
-  conversationCount: number
-  timestamp: Date
-  context: string
 }
 
 interface APIResponse {
@@ -1338,21 +1383,45 @@ const backToSelection = () => {
 }
 
 // 向上移动
-const moveUp = (index: number) => {
+const moveUp = async (index: number) => {
   if (index === 0) return
 
   const temp = rankedFactors.value[index]
   rankedFactors.value[index] = rankedFactors.value[index - 1]
   rankedFactors.value[index - 1] = temp
+  await trackStep2Event(
+    'step2_ranking_move',
+    conversationData.sessionId,
+    1,
+    conversationData.conversationCount,
+    {
+      move: 'up',
+      factorId: temp.id,
+      fromIndex: index,
+      toIndex: index - 1,
+    },
+  )
 }
 
 // 向下移动
-const moveDown = (index: number) => {
+const moveDown = async (index: number) => {
   if (index === rankedFactors.value.length - 1) return
 
   const temp = rankedFactors.value[index]
   rankedFactors.value[index] = rankedFactors.value[index + 1]
   rankedFactors.value[index + 1] = temp
+  await trackStep2Event(
+    'step2_ranking_move',
+    conversationData.sessionId,
+    1,
+    conversationData.conversationCount,
+    {
+      move: 'down',
+      factorId: temp.id,
+      fromIndex: index,
+      toIndex: index + 1,
+    },
+  )
 }
 
 // ==================== 🔥 快照生成函数 ====================
@@ -1722,13 +1791,18 @@ const submitAnswer = async () => {
     clearInterval(stepInterval)
 
     addMessage('ai', result.response, currentStageNum)
+    await trackStep2Event(
+      'step2_ai_response',
+      conversationData.sessionId,
+      currentStageNum,
+      conversationData.conversationCount,
+      {
+        responseLength: result.response.length,
+      },
+    )
 
     const conversationHistory: Message[] = conversationData.messages
-    const frontendShouldAdvance = shouldAdvanceStage(
-      currentStageNum,
-      conversationHistory,
-      result.response,
-    )
+    const frontendShouldAdvance = shouldAdvanceStage(currentStageNum, conversationHistory)
     const backendSuggestsCompletion = result.metadata?.suggestsCompletion || false
 
     const shouldAdvance = frontendShouldAdvance || backendSuggestsCompletion
@@ -1743,15 +1817,22 @@ const submitAnswer = async () => {
     })
 
     if (shouldAdvance) {
-      const stageCompleted = await checkStageCompletion(
-        currentStageNum,
-        currentAnswer,
-        result.response,
-      )
+      const stageCompleted = await checkStageCompletion(currentStageNum)
 
       if (stageCompleted && currentStageNum === 1 && !isConversationLimitReached.value) {
         setTimeout(() => {
           simpleStorage.updateCurrentStage(2, 2)
+          trackStep2Event(
+            'step2_stage_change',
+            conversationData.sessionId,
+            2,
+            conversationData.conversationCount,
+            {
+              fromStage: 1,
+              toStage: 2,
+              reason: 'auto_advance',
+            },
+          )
           const newData = simpleStorage.getStep2Data() as Step2Data | null
           if (newData) {
             conversationData.messages = newData.messages!.map(
@@ -1784,6 +1865,16 @@ const submitAnswer = async () => {
     clearInterval(stepInterval)
     console.error('AI API 调用失败:', error)
     addMessage('ai', '抱歉，系统暂时无法处理您的回答，请稍后重试。', currentStageNum)
+    await trackStep2Event(
+      'step2_ai_response',
+      conversationData.sessionId,
+      currentStageNum,
+      conversationData.conversationCount,
+      {
+        responseLength: '抱歉，系统暂时无法处理您的回答，请稍后重试。'.length,
+        error: true,
+      },
+    )
   } finally {
     isGenerating.value = false
     loadingStep.value = 0
@@ -1888,23 +1979,19 @@ const executeHelp = async (mode: 'refine' | 'example' | 'custom', customQuestion
 
   // 🔥 根据帮助模式生成可读的用户消息和上下文类型
   let userDisplayMessage = ''
-  let helpRequestContent = ''
   let helpContextType = ''
 
   switch (mode) {
     case 'refine':
       userDisplayMessage = `💬 帮我完善内容：${userAnswer.value || '（当前输入内容）'}`
-      helpRequestContent = '[REFINE_CONTENT]' + (userAnswer.value || '当前输入内容需要完善')
       helpContextType = 'refine_content'
       break
     case 'example':
       userDisplayMessage = '💡 能给我看看例子吗？'
-      helpRequestContent = '[REQUEST_EXAMPLE]' + '需要一个参考示例'
       helpContextType = 'request_example'
       break
     case 'custom':
       userDisplayMessage = `✍️ 我想问：${customQuestionText || '需要具体指导'}`
-      helpRequestContent = '[CUSTOM_QUESTION]' + (customQuestionText || '需要具体指导')
       helpContextType = 'custom_question'
       break
   }
@@ -1926,8 +2013,8 @@ const executeHelp = async (mode: 'refine' | 'example' | 'custom', customQuestion
       helpMode: mode,
       helpCycle: helpSystem.totalCycles,
       cycleUsedModes: Object.entries(helpSystem.currentCycleUsed)
-        .filter(([_, used]) => used)
-        .map(([m]) => m)
+        .filter(([, used]) => used)
+        .map(([mode]) => mode)
         .join(','),
       remainingCycles: helpSystem.maxCycles - helpSystem.totalCycles,
       hasUserInput: userAnswer.value.length > 0,
@@ -1952,6 +2039,16 @@ const executeHelp = async (mode: 'refine' | 'example' | 'custom', customQuestion
 
     // 🔥 添加AI回复
     addMessage('ai', helpResponse, conversationData.currentStage)
+    await trackStep2Event(
+      'step2_ai_response',
+      conversationData.sessionId,
+      currentStage.value,
+      conversationData.conversationCount,
+      {
+        responseLength: helpResponse.length,
+        helpMode: mode,
+      },
+    )
 
     // 🔥 保存到数据库（补充 event_data）
     await saveConversationToDB({
@@ -1978,6 +2075,17 @@ const executeHelp = async (mode: 'refine' | 'example' | 'custom', customQuestion
     }
 
     addMessage('ai', fallbackTexts[mode] || fallbackTexts.custom, conversationData.currentStage)
+    await trackStep2Event(
+      'step2_ai_response',
+      conversationData.sessionId,
+      currentStage.value,
+      conversationData.conversationCount,
+      {
+        responseLength: (fallbackTexts[mode] || fallbackTexts.custom).length,
+        helpMode: mode,
+        fallback: true,
+      },
+    )
     saveToStorage()
   } finally {
     isRequestingHelp.value = false
@@ -2054,7 +2162,8 @@ async function callAIAPI(
       },
     }
     if (stage === 1 && rankedFactorsData) {
-      ;(payload as any).rankedFactorsData = rankedFactorsData
+      ;(payload as unknown as { rankedFactorsData?: RankedFactorsData }).rankedFactorsData =
+        rankedFactorsData
     }
 
     const res = await fetch('/api/ai/analyze', {
@@ -2219,11 +2328,7 @@ const getRealUserInteractionCount = (messages: Message[], stage?: number): numbe
  * - Stage1: 累计3个因素 OR 第4轮自动跳转（至少1次真实回答）
  * - Stage2: 真实交互2轮自动完成
  */
-const shouldAdvanceStage = (
-  stage: number,
-  conversationHistory: Message[],
-  latestAIResponse: string,
-): boolean => {
+const shouldAdvanceStage = (stage: number, conversationHistory: Message[]): boolean => {
   // 🔥 Stage1：不再需要判断（已通过 confirmFactorSelection 直接推进）
   if (stage === 1) {
     console.log('⚠️ Stage1 推进逻辑已移至 confirmFactorSelection 函数')
@@ -2289,12 +2394,8 @@ const canProceedToNextStep = computed(() => {
   return false
 })
 
-const checkStageCompletion = async (
-  stage: number,
-  userAnswer: string,
-  aiResponse: string,
-): Promise<boolean> => {
-  const shouldComplete = shouldAdvanceStage(stage, conversationData.messages, aiResponse)
+const checkStageCompletion = async (stage: number): Promise<boolean> => {
+  const shouldComplete = shouldAdvanceStage(stage, conversationData.messages)
 
   if (shouldComplete) {
     if (stage === 1) {
@@ -2469,8 +2570,26 @@ const formatTime = (timestamp: string | Date) => {
   })
 }
 
+let inputDebounceTimer: ReturnType<typeof setTimeout> | null = null
+let lastInputLength = 0
 const handleInput = () => {
-  // 输入内容时不需要额外处理
+  if (inputDebounceTimer) {
+    clearTimeout(inputDebounceTimer)
+  }
+  inputDebounceTimer = setTimeout(async () => {
+    await trackStep2Event(
+      'step2_content_edit_change',
+      conversationData.sessionId,
+      currentStage.value,
+      conversationData.conversationCount,
+      {
+        inputLength: userAnswer.value.length,
+        delta: userAnswer.value.length - lastInputLength,
+        stage: currentStage.value,
+      },
+    )
+    lastInputLength = userAnswer.value.length
+  }, 800)
 }
 
 // ==================== 生命周期 ====================

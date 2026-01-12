@@ -61,35 +61,127 @@ export default async function handler(req, res) {
     const questionnaireCollection = db.collection('questionnaires')
 
     // 聚合查询：按sessionId分组，获取每个学生的统计数据
-    const studentStats = await conversationCollection
-      .aggregate([
-        { $match: conversationQuery },
-        {
-          $group: {
-            _id: '$sessionId',
-            experimentId: { $first: '$experimentId' },
-            firstActivity: { $min: '$timestamp' },
-            lastActivity: { $max: '$timestamp' },
-            totalConversations: { $sum: 1 },
-            steps: { $addToSet: '$step' },
-            metadata: { $first: '$metadata' },
+    let studentStats
+    try {
+      studentStats = await conversationCollection
+        .aggregate([
+          { $match: conversationQuery },
+          {
+            $addFields: {
+              safeUserInput: {
+                $cond: [{ $eq: [{ $type: '$userInput' }, 'string'] }, '$userInput', ''],
+              },
+              safeContext: {
+                $cond: [{ $eq: [{ $type: '$context' }, 'string'] }, '$context', ''],
+              },
+              isEventUser: {
+                $regexMatch: { input: '$safeUserInput', regex: /^\[EVENT:/ },
+              },
+              isEventContext: {
+                $regexMatch: { input: '$safeContext', regex: /^event_/ },
+              },
+            },
           },
-        },
-        {
-          $project: {
-            sessionId: '$_id',
-            experimentId: 1,
-            firstActivity: 1,
-            lastActivity: 1,
-            totalConversations: 1,
-            currentStep: { $max: '$steps' },
-            completedSteps: { $size: '$steps' },
-            metadata: 1,
-            _id: 0,
+          {
+            $group: {
+              _id: '$sessionId',
+              experimentId: { $first: '$experimentId' },
+              firstActivity: { $min: '$timestamp' },
+              lastActivity: { $max: '$timestamp' },
+              totalConversations: {
+                $sum: {
+                  $cond: [
+                    {
+                      $and: [{ $not: ['$isEventUser'] }, { $not: ['$isEventContext'] }],
+                    },
+                    1,
+                    0,
+                  ],
+                },
+              },
+              totalClicks: {
+                $sum: {
+                  $cond: [
+                    {
+                      $or: ['$isEventUser', '$isEventContext'],
+                    },
+                    1,
+                    0,
+                  ],
+                },
+              },
+              steps: { $addToSet: '$step' },
+              metadata: { $first: '$metadata' },
+            },
           },
-        },
-      ])
-      .toArray()
+          {
+            $project: {
+              sessionId: '$_id',
+              experimentId: 1,
+              firstActivity: 1,
+              lastActivity: 1,
+              totalConversations: 1,
+              totalClicks: 1,
+              hasChats: { $gt: ['$totalConversations', 0] },
+              hasClicks: { $gt: ['$totalClicks', 0] },
+              currentStep: { $max: '$steps' },
+              completedSteps: { $size: '$steps' },
+              metadata: 1,
+              _id: 0,
+            },
+          },
+        ])
+        .toArray()
+    } catch (aggError) {
+      const allConvs = await conversationCollection.find(conversationQuery).toArray()
+      const bySession = new Map()
+      for (const conv of allConvs) {
+        const sid = conv.sessionId
+        if (!sid) continue
+        if (!bySession.has(sid)) {
+          bySession.set(sid, {
+            sessionId: sid,
+            experimentId: conv.experimentId,
+            firstActivity: conv.timestamp,
+            lastActivity: conv.timestamp,
+            totalConversations: 0,
+            totalClicks: 0,
+            stepsSet: new Set(),
+            metadata: conv.metadata,
+          })
+        }
+        const s = bySession.get(sid)
+        if (conv.timestamp && (!s.firstActivity || conv.timestamp < s.firstActivity)) {
+          s.firstActivity = conv.timestamp
+        }
+        if (conv.timestamp && (!s.lastActivity || conv.timestamp > s.lastActivity)) {
+          s.lastActivity = conv.timestamp
+        }
+        s.stepsSet.add(conv.step)
+        const ui = conv.userInput
+        const ctx = conv.context
+        const isEventUser = typeof ui === 'string' && /^\[EVENT:/.test(ui)
+        const isEventContext = typeof ctx === 'string' && /^event_/.test(ctx)
+        if (isEventUser || isEventContext) {
+          s.totalClicks += 1
+        } else {
+          s.totalConversations += 1
+        }
+      }
+      studentStats = Array.from(bySession.values()).map((s) => ({
+        sessionId: s.sessionId,
+        experimentId: s.experimentId,
+        firstActivity: s.firstActivity,
+        lastActivity: s.lastActivity,
+        totalConversations: s.totalConversations,
+        totalClicks: s.totalClicks,
+        hasChats: s.totalConversations > 0,
+        hasClicks: s.totalClicks > 0,
+        currentStep: Math.max(...Array.from(s.stepsSet.values()).map((x) => x || 0)),
+        completedSteps: s.stepsSet.size,
+        metadata: s.metadata,
+      }))
+    }
 
     console.log(`📋 找到 ${studentStats.length} 个学生会话`)
 
@@ -143,6 +235,9 @@ export default async function handler(req, res) {
         status,
         hasQuestionnaire,
         totalConversations: student.totalConversations,
+        totalClicks: student.totalClicks || 0,
+        hasClicks: !!student.hasClicks,
+        hasChats: !!student.hasChats,
         timeSpent, // 分钟
         firstActivity: student.firstActivity,
         lastActivity: student.lastActivity,

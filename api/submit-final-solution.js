@@ -141,7 +141,7 @@ function evaluateFinalPlan(text) {
       dimension2: { score: d2, items: { logicalConsistency: d2_item1, feasibility: d2_item2 } },
       dimension3: { score: d3, items: { ownThinking: d3_item1, reasonExplanation: d3_item2 } },
     },
-    rubricVersion: 'experimentplatform_v1',
+    rubricVersion: '通风方案设计评价表',
   }
 }
 

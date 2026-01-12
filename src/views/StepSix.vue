@@ -183,8 +183,8 @@
               <button @click="cancelFinalSubmit" class="close-btn">✕</button>
             </div>
             <div class="dialog-content">
-              <div class="markdown-preview" v-html="renderMarkdown(studentFinalPlan)"></div>
               <p class="confirm-hint">提交后将立即评分，且无法修改。</p>
+              <div class="markdown-preview" v-html="renderMarkdown(studentFinalPlan)"></div>
             </div>
             <div class="dialog-actions">
               <button class="secondary-btn" @click="cancelFinalSubmit">取消</button>
@@ -210,7 +210,7 @@
             <button
               v-for="tab in aiTabs"
               :key="tab.id"
-              @click="activeAITab = tab.id"
+              @click="switchAITab(tab.id)"
               :class="['tab-btn', { active: activeAITab === tab.id }]"
             >
               <span class="tab-icon">{{ tab.icon }}</span>
@@ -558,14 +558,20 @@ const autoSaveDraft = () => {
 }
 
 // ==================== 引导卡片操作 ====================
-const collapseGuidance = () => {
+const collapseGuidance = async () => {
   guidanceCollapsed.value = true
   simpleStorage.setItem('step6_guidance_collapsed', true)
+  await trackStep6Event('step6_guidance_collapse', getSessionId(), {
+    collapsed: true,
+  })
 }
 
-const expandGuidance = () => {
+const expandGuidance = async () => {
   guidanceCollapsed.value = false
   simpleStorage.setItem('step6_guidance_collapsed', false)
+  await trackStep6Event('step6_guidance_expand', getSessionId(), {
+    collapsed: false,
+  })
 }
 
 // ==================== 工具栏操作 ====================
@@ -578,8 +584,13 @@ const toggleDraftPreview = async () => {
   })
 }
 
-const closeDraftPreview = () => {
+const closeDraftPreview = async () => {
   showDraftPreview.value = false
+  const sessionId = getSessionId()
+  await trackStep6Event('step6_draft_preview_toggle', sessionId, {
+    isOpen: false,
+    action: 'close_button',
+  })
 }
 
 const copyDraftToEditor = async () => {
@@ -1956,6 +1967,7 @@ watch(
 .final-confirm-dialog .confirm-hint {
   color: #ef4444;
   font-size: 1.25rem;
+  margin-bottom: 12px;
 }
 .final-confirm-dialog .dialog-header h3 {
   font-size: 1.25rem;

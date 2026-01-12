@@ -54,6 +54,7 @@ export default async function handler(req, res) {
     const conversationCollection = db.collection('conversations')
     const questionnaireCollection = db.collection('questionnaires')
     const evaluationCollection = db.collection('student_evaluations') // 🔥 新增：能力评估集合
+    const eventsCollection = db.collection('events')
 
     // 1. 获取所有对话记录
     const conversations = await conversationCollection
@@ -125,6 +126,61 @@ export default async function handler(req, res) {
 
     // 🔥 新增：3. 获取能力评估数据
     const evaluation = await evaluationCollection.findOne({ sessionId })
+    const events = await eventsCollection.find({ sessionId }).sort({ timestamp: 1 }).toArray()
+    const eventsByStep = {}
+    const clickKeywords = [
+      '_click',
+      'open',
+      'close',
+      'toggle',
+      'copy',
+      'insert',
+      'save',
+      'attempt',
+      'confirm',
+      'cancel',
+      'restore',
+      'unsaved',
+      'draft',
+      'fullscreen',
+      'guidance',
+      'drawer',
+      'tab_switch',
+      'reference',
+      'editor_clear',
+      'collapse',
+      'expand',
+      'next_step',
+      'confirm_dialog',
+      'help_button',
+    ]
+    let totalClicks = 0
+    let totalChats = 0
+    let step6Clicks = 0
+    let step6Chats = 0
+    for (const ev of events) {
+      const step = ev.step || 0
+      if (!eventsByStep[step]) {
+        eventsByStep[step] = []
+      }
+      eventsByStep[step].push({
+        name: ev.event_name,
+        timestamp: ev.timestamp,
+        stage: ev.stage,
+        data: ev.event_data || {},
+      })
+      const name = String(ev.event_name || '')
+      const isChat = name.includes('chat_send')
+      const isClick =
+        clickKeywords.some((kw) => name.includes(kw)) && !isChat && !name.includes('chat_receive')
+      if (isChat) {
+        totalChats++
+        if (step === 6) step6Chats++
+      } else if (isClick) {
+        totalClicks++
+        if (step === 6) step6Clicks++
+      }
+    }
 
     // 4. 按步骤组织对话数据（使用去重后的数据）
     const conversationsByStep = {}
@@ -396,6 +452,17 @@ export default async function handler(req, res) {
       questionnaireData, // 问卷数据
       evaluationData, // 🔥 新增：能力评估数据
       rawConversations: uniqueConversations, // 原始对话记录（已过滤EVENT和重复）
+      eventsByStep,
+      operationSummary: {
+        totalClicks,
+        totalChats,
+        hasClicks: totalClicks > 0,
+        hasChats: totalChats > 0,
+        step6: {
+          clicks: step6Clicks,
+          chats: step6Chats,
+        },
+      },
     }
 
     console.log('✅ 学生详情数据准备完成')

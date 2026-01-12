@@ -212,6 +212,8 @@
             <th>当前步骤</th>
             <th>状态</th>
             <th>对话数</th>
+            <th>点击：有/无</th>
+            <th>聊天：有/无</th>
             <th>时长(分钟)</th>
             <th>问卷</th>
             <th>最后活跃</th>
@@ -249,6 +251,16 @@
               </span>
             </td>
             <td>{{ student.totalConversations }}</td>
+            <td>
+              <span class="interaction-badge" :class="{ has: !!student.hasClicks }">
+                {{ student.hasClicks ? '有' : '无' }}
+              </span>
+            </td>
+            <td>
+              <span class="interaction-badge" :class="{ has: !!student.hasChats }">
+                {{ student.hasChats ? '有' : '无' }}
+              </span>
+            </td>
             <td>{{ student.timeSpent }}</td>
             <td>
               <span class="questionnaire-badge" :class="{ completed: student.hasQuestionnaire }">
@@ -554,6 +566,9 @@ interface Student {
   status: '已完成' | '进行中' | '未开始'
   hasQuestionnaire: boolean
   totalConversations: number
+  hasClicks?: boolean
+  hasChats?: boolean
+  totalClicks?: number
   timeSpent: number
   firstActivity: string
   lastActivity: string
@@ -1301,6 +1316,21 @@ onMounted(() => {
 }
 
 .questionnaire-badge.completed {
+  background: #dbeafe;
+  color: #1e40af;
+}
+
+.interaction-badge {
+  display: inline-block;
+  padding: 0.25rem 0.75rem;
+  border-radius: 12px;
+  font-size: 0.75rem;
+  font-weight: 500;
+  background: #f1f5f9;
+  color: #64748b;
+}
+
+.interaction-badge.has {
   background: #dbeafe;
   color: #1e40af;
 }

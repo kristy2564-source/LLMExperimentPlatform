@@ -83,6 +83,32 @@
               </span>
             </span>
           </div>
+          <div class="info-item">
+            <span class="info-label">Step6 是否提交</span>
+            <span class="info-value">
+              <span
+                class="status-badge"
+                :class="{ submitted: studentData.basicInfo.step6Submitted }"
+              >
+                {{ studentData.basicInfo.step6Submitted ? '已提交' : '未提交' }}
+              </span>
+            </span>
+          </div>
+          <div class="info-item">
+            <span class="info-label">Step6 分数</span>
+            <span class="info-value">
+              <template v-if="studentData.basicInfo.step6Grade">
+                <span
+                  class="grade-badge"
+                  :class="'grade-' + (studentData.basicInfo.step6Grade.letter || 'N')"
+                >
+                  {{ studentData.basicInfo.step6Grade.letter }} |
+                  {{ studentData.basicInfo.step6Grade.score }} 分
+                </span>
+              </template>
+              <template v-else> - </template>
+            </span>
+          </div>
         </div>
       </div>
 
@@ -257,6 +283,37 @@
               </div>
               <div v-if="studentData.finalAnswers[step]" class="answer-content">
                 {{ studentData.finalAnswers[step].content }}
+              </div>
+              <div v-if="step === 6 && step6GradeInfo" class="evaluation-card">
+                <div class="evaluation-header">
+                  <div class="grade-badge" :class="'grade-' + (step6GradeInfo.letter || 'N')">
+                    <span class="grade-letter">{{ step6GradeInfo.letter }}</span>
+                    <span class="grade-score">{{ step6GradeInfo.score }} 分</span>
+                  </div>
+                  <div class="rubric-version">量规：{{ step6GradeInfo.rubricVersion || '—' }}</div>
+                </div>
+                <table class="evaluation-table" v-if="step6RubricDisplay.length > 0">
+                  <thead>
+                    <tr>
+                      <th>维度</th>
+                      <th>指标</th>
+                      <th>得分</th>
+                      <th>满分</th>
+                      <th>占比</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    <template v-for="dim in step6RubricDisplay" :key="dim.key">
+                      <tr v-for="item in dim.items" :key="dim.key + '_' + item.key">
+                        <td>{{ dim.name }}</td>
+                        <td>{{ item.name }}</td>
+                        <td>{{ item.score }}</td>
+                        <td>{{ item.max }}</td>
+                        <td>{{ item.percent }}%</td>
+                      </tr>
+                    </template>
+                  </tbody>
+                </table>
               </div>
               <div v-else class="answer-empty">暂无提交内容</div>
             </div>
@@ -752,6 +809,14 @@ interface BasicInfo {
   totalSteps: number
   status: string
   hasQuestionnaire: boolean
+  hasEvaluation?: boolean
+  step6Grade?: {
+    letter: string
+    score: number
+    rubricVersion?: string
+    breakdown?: unknown
+  } | null
+  step6Submitted?: boolean
 }
 
 interface StudentData {
@@ -877,6 +942,19 @@ const loadStudentDetail = async () => {
     if (result.success) {
       studentData.value = result.data
       console.log('✅ 学生详情加载成功')
+      const dist = studentData.value?.behaviorStats?.stepDistribution || {}
+      const hasStep6 = (studentData.value?.conversationsByStep?.[6]?.length || 0) > 0
+      if (hasStep6) {
+        selectedStep.value = 6
+      } else {
+        const steps = Object.keys(dist)
+          .map((k) => parseInt(k, 10))
+          .filter((n) => !Number.isNaN(n))
+        if (steps.length > 0) {
+          const maxStep = steps.sort((a, b) => dist[b] - dist[a])[0]
+          selectedStep.value = maxStep || 2
+        }
+      }
     } else {
       error.value = result.error || '加载失败'
     }
@@ -939,6 +1017,81 @@ const getStepName = (step: number) => {
   }
   return names[step] || `步骤${step}`
 }
+
+interface RubricItems1 {
+  problemClarity: number
+  specificStrategy: number
+  specialCases: number
+}
+interface RubricItems2 {
+  logicalConsistency: number
+  feasibility: number
+}
+interface RubricItems3 {
+  ownThinking: number
+  reasonExplanation: number
+}
+interface DimensionBreakdown<T> {
+  score: number
+  items: T
+}
+interface GradeBreakdown {
+  dimension1: DimensionBreakdown<RubricItems1>
+  dimension2: DimensionBreakdown<RubricItems2>
+  dimension3: DimensionBreakdown<RubricItems3>
+}
+
+const step6GradeInfo = computed(() => {
+  return studentData.value?.basicInfo?.step6Grade || null
+})
+
+const step6RubricDisplay = computed(() => {
+  const bd = (step6GradeInfo.value?.breakdown || null) as GradeBreakdown | null
+  if (!bd) return []
+  const dim1 = bd.dimension1
+  const dim2 = bd.dimension2
+  const dim3 = bd.dimension3
+  const i1 = dim1.items
+  const i2 = dim2.items
+  const i3 = dim3.items
+  const mapItem = (key: string, name: string, score: number, max: number) => ({
+    key,
+    name,
+    score: score || 0,
+    max,
+    percent: Math.min(100, Math.round(((score || 0) / max) * 100)),
+  })
+  return [
+    {
+      key: 'dimension1',
+      name: '维度一：问题识别与整合',
+      score: dim1.score || 0,
+      items: [
+        mapItem('problemClarity', '问题表述与目标', i1.problemClarity || 0, 5),
+        mapItem('specificStrategy', '具体策略与阈值', i1.specificStrategy || 0, 20),
+        mapItem('specialCases', '特殊情境覆盖', i1.specialCases || 0, 15),
+      ],
+    },
+    {
+      key: 'dimension2',
+      name: '维度二：逻辑与可行性',
+      score: dim2.score || 0,
+      items: [
+        mapItem('logicalConsistency', '逻辑一致性与范围', i2.logicalConsistency || 0, 20),
+        mapItem('feasibility', '实施与可行性', i2.feasibility || 0, 20),
+      ],
+    },
+    {
+      key: 'dimension3',
+      name: '维度三：思考深度',
+      score: dim3.score || 0,
+      items: [
+        mapItem('ownThinking', '自主思考表达', i3.ownThinking || 0, 10),
+        mapItem('reasonExplanation', '理由与论证', i3.reasonExplanation || 0, 10),
+      ],
+    },
+  ]
+})
 
 const getHelpTypeLabel = (type: string) => {
   const labels: Record<string, string> = {
@@ -1670,6 +1823,73 @@ onMounted(() => {
   padding: 2rem;
   color: #94a3b8;
   font-style: italic;
+}
+
+/* Step6 评价表格 */
+.evaluation-card {
+  background: white;
+  border-radius: 12px;
+  padding: 1.25rem;
+  border: 1px solid #e2e8f0;
+  margin-top: 1rem;
+}
+
+.evaluation-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 1rem;
+  padding-bottom: 0.75rem;
+  border-bottom: 1px solid #e2e8f0;
+}
+
+.rubric-version {
+  color: #64748b;
+  font-size: 0.875rem;
+}
+
+.evaluation-table {
+  width: 100%;
+  border-collapse: collapse;
+  background: #fff;
+}
+
+.evaluation-table th,
+.evaluation-table td {
+  padding: 0.75rem 0.875rem;
+  border: 1px solid #e2e8f0;
+  text-align: left;
+  color: #334155;
+}
+
+.evaluation-table thead th {
+  background: #f8fafc;
+  font-weight: 600;
+  color: #1e293b;
+}
+
+.evaluation-table tbody tr:nth-child(even) {
+  background: #fafafa;
+}
+
+.grade-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.375rem 0.75rem;
+  border-radius: 999px;
+  font-weight: 700;
+  color: #1e293b;
+  background: #f1f5f9;
+}
+
+.grade-badge .grade-letter {
+  font-size: 0.875rem;
+}
+
+.grade-badge .grade-score {
+  font-size: 0.875rem;
+  color: #334155;
 }
 
 /* 问卷结果 */

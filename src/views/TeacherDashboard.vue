@@ -87,6 +87,13 @@
           class="filter-input"
         />
       </div>
+      <div class="filter-group">
+        <label class="filter-label">等级筛选:</label>
+        <select v-model="filterLevel" @change="loadStudentList" class="filter-select">
+          <option value="">全部</option>
+          <option value="2">≥Level2</option>
+        </select>
+      </div>
     </div>
 
     <!-- 批量选择工具栏 -->
@@ -150,6 +157,14 @@
                 <div class="item-desc">大批量导出（较慢）</div>
               </div>
             </button>
+            <div class="menu-divider"></div>
+            <button class="menu-item" @click="selectStarred">
+              <span class="item-icon">⭐</span>
+              <div class="item-content">
+                <div class="item-title">选中已标星的</div>
+                <div class="item-desc">用于集体导出</div>
+              </div>
+            </button>
           </div>
         </div>
 
@@ -207,6 +222,7 @@
                 class="student-checkbox"
               />
             </th>
+            <th>标星</th>
             <th>学生ID</th>
             <th>实验组别</th>
             <th>当前步骤</th>
@@ -229,6 +245,15 @@
                 @change="toggleSelectStudent(student.sessionId)"
                 class="student-checkbox"
               />
+            </td>
+            <td class="star-col">
+              <button
+                class="star-button"
+                :class="{ active: !!student.starred }"
+                @click="toggleStar(student.sessionId)"
+              >
+                <span class="star-icon">{{ student.starred ? '⭐' : '☆' }}</span>
+              </button>
             </td>
             <td class="session-id">{{ student.sessionId }}</td>
             <td>{{ student.experimentId }}</td>
@@ -573,6 +598,7 @@ interface Student {
   firstActivity: string
   lastActivity: string
   questionnaireData: QuestionnaireData | null
+  starred?: boolean
 }
 
 interface Statistics {
@@ -598,6 +624,7 @@ const statistics = ref<Statistics | null>(null)
 const filterStatus = ref('')
 const filterExperimentId = ref('')
 const searchKeyword = ref('')
+const filterLevel = ref('')
 
 // 批量导出
 const selectedStudents = ref<string[]>([])
@@ -894,6 +921,7 @@ const loadStudentList = async () => {
     const params = new URLSearchParams()
     if (filterStatus.value) params.append('status', filterStatus.value)
     if (filterExperimentId.value) params.append('experimentId', filterExperimentId.value)
+    if (filterLevel.value) params.append('minLevel', filterLevel.value)
 
     const response = await fetch(`/api/teacher/students/list?${params.toString()}`, {
       headers: {
@@ -926,6 +954,50 @@ const loadStudentList = async () => {
 
 const handleSearch = () => {
   currentPage.value = 1
+}
+
+const toggleStar = async (sessionId: string) => {
+  const s = students.value.find((x) => x.sessionId === sessionId)
+  if (!s) return
+  const newStarred = !s.starred
+  s.starred = newStarred
+  try {
+    const token = localStorage.getItem('teacherToken')
+    if (!token) {
+      router.push('/teacher/login')
+      return
+    }
+    const response = await fetch('/api/teacher/students/list', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: `Bearer ${token}`,
+      },
+      body: JSON.stringify({
+        action: 'toggleStar',
+        sessionId,
+        starred: newStarred,
+      }),
+    })
+    if (!response.ok) {
+      s.starred = !newStarred
+      alert('切换标星失败，请稍后重试')
+    }
+  } catch (err) {
+    s.starred = !newStarred
+    alert('网络错误，请稍后重试')
+  }
+}
+
+const selectStarred = () => {
+  const ids = filteredStudents.value.filter((s) => s.starred).map((s) => s.sessionId)
+  if (ids.length === 0) {
+    alert('暂无已标星的学生')
+    return
+  }
+  selectedStudents.value = Array.from(new Set([...selectedStudents.value, ...ids]))
+  showBatchSelectMenu.value = false
+  console.log(`✅ 已选中已标星的 ${ids.length} 个学生`)
 }
 
 const getStatusClass = (status: string) => {
@@ -1480,6 +1552,31 @@ onMounted(() => {
   height: 18px;
   cursor: pointer;
   accent-color: #3b82f6;
+}
+
+.star-col {
+  width: 60px;
+}
+
+.star-button {
+  background: transparent;
+  border: none;
+  cursor: pointer;
+  font-size: 1.125rem;
+  line-height: 1;
+  color: #cbd5e1;
+  transition:
+    color 0.2s,
+    transform 0.1s;
+}
+
+.star-button:hover {
+  color: #64748b;
+  transform: translateY(-1px);
+}
+
+.star-button.active {
+  color: #f59e0b;
 }
 
 /* 批量导出对话框 */

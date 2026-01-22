@@ -1408,13 +1408,19 @@ const getSessionId = (): string => {
   return simpleStorage.getSessionId()
 }
 
+const escapeHTML = (s: string): string => {
+  return s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+}
+
 const renderMarkdown = (content: string): string => {
   try {
     marked.setOptions({ breaks: true, gfm: true })
-    return marked.parse(content) as string
+    const text = typeof content === 'string' ? content : String(content || '')
+    return marked.parse(text) as string
   } catch (error) {
     console.error('Markdown渲染失败:', error)
-    return content
+    const text = typeof content === 'string' ? content : String(content || '')
+    return `<pre>${escapeHTML(text)}</pre>`
   }
 }
 

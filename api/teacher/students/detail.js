@@ -55,6 +55,7 @@ export default async function handler(req, res) {
     const questionnaireCollection = db.collection('questionnaires')
     const evaluationCollection = db.collection('student_evaluations') // 🔥 新增：能力评估集合
     const eventsCollection = db.collection('events')
+    const finalSolutionsCollection = db.collection('final_solutions') // 🔥 新增：Step6最终方案集合
 
     // 1. 获取所有对话记录
     const conversations = await conversationCollection
@@ -127,6 +128,12 @@ export default async function handler(req, res) {
     // 🔥 新增：3. 获取能力评估数据
     const evaluation = await evaluationCollection.findOne({ sessionId })
     const events = await eventsCollection.find({ sessionId }).sort({ timestamp: 1 }).toArray()
+    const finalSolutionDocs = await finalSolutionsCollection
+      .find({ sessionId })
+      .sort({ 'timestamps.submittedAt': -1 })
+      .limit(1)
+      .toArray()
+    const finalSolution = finalSolutionDocs[0] || null
     const eventsByStep = {}
     const clickKeywords = [
       '_click',
@@ -191,6 +198,7 @@ export default async function handler(req, res) {
       byStep: {},
     }
 
+    const stepSeenPairs = new Map()
     uniqueConversations.forEach((conv) => {
       const step = conv.step || 'unknown'
 
@@ -199,13 +207,34 @@ export default async function handler(req, res) {
         conversationsByStep[step] = []
       }
 
-      conversationsByStep[step].push({
-        userInput: conv.userInput,
-        aiResponse: conv.aiResponse,
-        timestamp: conv.timestamp,
-        stage: conv.stage,
-        metadata: conv.metadata,
-      })
+      const isContentFinal =
+        typeof conv.userInput === 'string' && conv.userInput.includes('[FINAL_SNAPSHOT]')
+      const isFinalSnapshot = !!(conv.metadata && conv.metadata.isFinalSnapshot) || isContentFinal
+      const isFinalSubmit = step === 6 && conv.context === 'final_solution_submission'
+      if (!isFinalSnapshot && !isFinalSubmit) {
+        const ui = String(conv.userInput || '')
+          .trim()
+          .replace(/\s+/g, ' ')
+        const ai = String(conv.aiResponse || '')
+          .trim()
+          .replace(/\s+/g, ' ')
+        const pairKey = `${ui}::${ai}`
+        let seenSet = stepSeenPairs.get(step)
+        if (!seenSet) {
+          seenSet = new Set()
+          stepSeenPairs.set(step, seenSet)
+        }
+        if (!seenSet.has(pairKey)) {
+          seenSet.add(pairKey)
+          conversationsByStep[step].push({
+            userInput: conv.userInput,
+            aiResponse: conv.aiResponse,
+            timestamp: conv.timestamp,
+            stage: conv.stage,
+            metadata: conv.metadata,
+          })
+        }
+      }
 
       // 提取最终答案（带有快照标记的对话）
       if (conv.metadata?.isFinalSnapshot && conv.metadata?.finalAnswerContent) {
@@ -276,6 +305,28 @@ export default async function handler(req, res) {
         totalAiLength += conv.aiResponse.length
       }
     })
+
+    // 🔥 若存在最终方案文档，则覆盖/补充 Step6 的最终答案
+    let step6Grade = null
+    if (finalSolution && finalSolution.solutionData?.finalPlan) {
+      finalAnswers[6] = {
+        content: finalSolution.solutionData.finalPlan,
+        timestamp: finalSolution.timestamps?.submittedAt || new Date().toISOString(),
+      }
+      if (finalSolution.grade) {
+        step6Grade = {
+          letter: finalSolution.grade.letter,
+          score: finalSolution.grade.score,
+          rubricVersion: finalSolution.grade.rubricVersion,
+          breakdown: finalSolution.grade.breakdown,
+        }
+      }
+      console.log(
+        `✅ 来自 final_solutions 的 Step6 最终方案: ${finalSolution.solutionData.finalPlan.length}字`,
+      )
+    } else {
+      console.log('ℹ️ 未在 final_solutions 集合中找到该学生的最终方案文档')
+    }
 
     if (messageStats.totalUserMessages > 0) {
       messageStats.avgUserMessageLength = Math.round(
@@ -445,6 +496,8 @@ export default async function handler(req, res) {
         status: questionnaire ? '已完成' : '进行中',
         hasQuestionnaire: !!questionnaire,
         hasEvaluation: !!evaluation, // 🔥 新增：是否有能力评估
+        step6Grade, // 🔥 新增：Step6 评分与评价
+        step6Submitted: !!finalAnswers[6]?.content,
       },
       conversationsByStep, // 按步骤组织的对话历史(已去重)
       finalAnswers, // 各步骤的最终答案

@@ -216,7 +216,7 @@
           <div v-if="selectionStep === 'select'" class="selection-content">
             <div class="selection-header">
               <div class="header-icon">🔍</div>
-              <h3>步骤1：选择影响因素</h3>
+              <h3>步骤1：选择影响教室通风节能的因素</h3>
               <p class="selection-hint">
                 请勾选你认为重要的因素（最少3个，最多{{ MAX_SELECTION }}个）
               </p>
@@ -2760,7 +2760,7 @@ onMounted(async () => {
   if (conversationData.messages.length === 0 && !promptShown.value) {
     addMessage(
       'ai',
-      '问题识别和控制设计阶段：我们先完成第1步的<strong>选择与排序</strong>。<br />选出你认为最重要的3个因素并按重要性排序。<br />如有其他问题，可在下方与AI助手对话。',
+      '问题识别和控制设计阶段：我们先完成第1步的<strong>选择与排序</strong>。<br />选出你认为影响教室闷热与耗电的最重要的3个因素并按重要性排序。<br />如有其他问题，可在下方与AI助手对话。',
       1,
     )
     promptShown.value = true

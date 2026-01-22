@@ -45,10 +45,28 @@ export default async function handler(req, res) {
 
     const client = await connectToDatabase()
     const db = client.db('llm_learning')
+    const starsCollection = db.collection('teacher_starred_students')
 
     // 从请求体或查询参数获取筛选条件
-    const { experimentId, status, startDate, endDate } =
+    const { experimentId, status, startDate, endDate, minLevel } =
       req.method === 'POST' ? req.body : req.query
+
+    if (req.method === 'POST' && req.body && req.body.action === 'toggleStar') {
+      const { sessionId, starred } = req.body
+      if (!sessionId) {
+        return res.status(400).json({ success: false, error: '缺少sessionId' })
+      }
+      if (starred) {
+        await starsCollection.updateOne(
+          { sessionId },
+          { $set: { sessionId, starredAt: new Date().toISOString() } },
+          { upsert: true },
+        )
+      } else {
+        await starsCollection.deleteOne({ sessionId })
+      }
+      return res.status(200).json({ success: true })
+    }
 
     // 构建查询条件
     const conversationQuery = {}
@@ -268,10 +286,46 @@ export default async function handler(req, res) {
       })
     }
 
-    // 6. 按最后活跃时间降序排序
+    // 6. 等级筛选
+    if (minLevel) {
+      const levelThreshold = parseInt(minLevel, 10)
+      const evaluationCollection = db.collection('student_evaluations')
+      const sessionIds = filteredList.map((s) => s.sessionId)
+      const evaluations = await evaluationCollection
+        .find(
+          { sessionId: { $in: sessionIds } },
+          { projection: { sessionId: 1, evaluationResult: 1 } },
+        )
+        .toArray()
+      const evalMap = new Map()
+      for (const e of evaluations) {
+        evalMap.set(e.sessionId, e.evaluationResult?.capabilityAssessments || [])
+      }
+      filteredList = filteredList.filter((s) => {
+        const assessments = evalMap.get(s.sessionId)
+        if (!assessments || assessments.length === 0) return false
+        return assessments.every((a) => {
+          const v =
+            typeof a.level === 'string'
+              ? parseInt(String(a.level).replace(/\D+/g, ''), 10)
+              : a.level
+          return v >= levelThreshold
+        })
+      })
+    }
+
+    // 7. 读取标星信息
+    const sessionIdsAll = filteredList.map((s) => s.sessionId)
+    const stars = await starsCollection
+      .find({ sessionId: { $in: sessionIdsAll } }, { projection: { sessionId: 1 } })
+      .toArray()
+    const starredSet = new Set(stars.map((x) => x.sessionId))
+    filteredList = filteredList.map((s) => ({ ...s, starred: starredSet.has(s.sessionId) }))
+
+    // 8. 按最后活跃时间降序排序
     filteredList.sort((a, b) => new Date(b.lastActivity) - new Date(a.lastActivity))
 
-    // 7. 计算统计数据
+    // 9. 计算统计数据
     const statistics = {
       totalStudents: filteredList.length,
       completedStudents: filteredList.filter((s) => s.status === '已完成').length,
